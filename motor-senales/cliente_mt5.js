@@ -149,13 +149,19 @@ class ClienteMT5 extends EventEmitter {
       }
       return;
     }
-    // Velas (respuesta a cmd 11)
+    // Velas (respuesta a cmd 11, posiblemente partida en varios frames)
     if (p.cmd === 11 && this._pendientes11.size) {
       const vela = this._parseVelas(p.body);
       for (const [nombre, pend] of this._pendientes11) {
-        clearTimeout(pend.timer);
-        this._pendientes11.delete(nombre);
-        pend.resolver(vela);
+        if (!pend.buf) pend.buf = [];
+        for (const v of vela.velas) pend.buf.push(v);
+        pend.descartadas = (pend.descartadas || 0) + vela.descartadas;
+        if (pend.debounce) clearTimeout(pend.debounce);
+        pend.debounce = setTimeout(() => {
+          clearTimeout(pend.timer);
+          this._pendientes11.delete(nombre);
+          pend.resolver({ velas: pend.buf, descartadas: pend.descartadas || 0 });
+        }, 700);
       }
       return;
     }
@@ -167,18 +173,23 @@ class ClienteMT5 extends EventEmitter {
      packet[66..74)  = [u32 desde][u32 hasta] (época en segundos; el servidor
                        responde con las velas de ese rango)
      Respuesta: registros de 48 B [u32 t][f64 o][f64 h][f64 l][f64 c][u32 vol][u32 ?] */
-  pedirVelas(nombre, { tf = 'H1', dias = 90, timeoutMs = 10000 } = {}) {
+  pedirVelas(nombre, { tf = 'H1', dias = 90, desde = 0, hasta = 0, timeoutMs = 10000 } = {}) {
     if (this.etapa !== 'listo' || !this.ids[nombre]) return Promise.resolve(null);
     const ENUM_TF = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 0x4001, H4: 0x4004, D1: 0x4018 };
     const periodo = ENUM_TF[tf] ?? 0x4001;
     const packet = Buffer.alloc(78);                          // [4B cabecera][60B símbolo][2B tf][8B rango]
     packet[0] = crypto.randomInt(256); packet[1] = crypto.randomInt(256); packet.writeUInt16LE(11, 2);
     Buffer.from(nombre, 'utf16le').copy(packet, 4);          // + terminador null (los ceros del alloc)
-    const hasta = Math.floor(Date.now() / 1000), desde = hasta - Math.max(1, dias) * 86400;
+    const h = Math.floor(Number(hasta)) || Math.floor(Date.now() / 1000);
+    const d = Math.floor(Number(desde)) || h - Math.max(1, dias) * 86400;
     packet[68] = periodo & 0xff; packet[69] = (periodo >> 8) & 0xff;
-    packet.writeUInt32LE(desde, 70); packet.writeUInt32LE(hasta, 74);
+    packet.writeUInt32LE(d, 70); packet.writeUInt32LE(h, 74);
     return new Promise((resolver) => {
-      const timer = setTimeout(() => { this._pendientes11.delete(nombre); resolver(null); }, timeoutMs);
+      const timer = setTimeout(() => {
+        const pend = this._pendientes11.get(nombre);
+        if (pend && pend.debounce) clearTimeout(pend.debounce);
+        this._pendientes11.delete(nombre); resolver(null);
+      }, timeoutMs);
       this._pendientes11.set(nombre, { resolver, timer });
       this._enviarPacket(packet);
     });

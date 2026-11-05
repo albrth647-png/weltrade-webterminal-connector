@@ -50,7 +50,7 @@ class Estrategia extends EventEmitter {
     if (!e) {
       e = {
         velas: { M5: [], M15: [], H1: [] }, cur: {}, atr: 0,
-        zonas: [], sesgo: 'lateral', ultSenalZona: new Map(),
+        zonas: [], sesgo: 'lateral', ultSenalZona: new Map(), ahora: 0,
       };
       this.s.set(simbolo, e);
     }
@@ -61,6 +61,8 @@ class Estrategia extends EventEmitter {
   setHistoria(simbolo, tf, velas) {
     const e = this._estado(simbolo);
     e.velas[tf] = velas.slice(-this.cfg.maxVelas[tf]);
+    const ult = e.velas[tf][e.velas[tf].length - 1];
+    if (ult && ult.t > e.ahora) e.ahora = ult.t;   // reloj de mercado (no de pared)
     if (tf === 'H1') this._recalcSesgo(simbolo);
     if (tf === 'M15') {
       this._recalcAtr(simbolo);
@@ -75,7 +77,7 @@ class Estrategia extends EventEmitter {
           const fuera = z.tipo === 'soporte'
             ? ult.c < z.nivel - this.cfg.tnAtr * e.atr
             : ult.c > z.nivel + this.cfg.tnAtr * e.atr;
-          if (fuera) { z.estado = 'muerta'; z.muertaEn = Date.now(); }
+          if (fuera) { z.estado = 'muerta'; z.muertaEn = e.ahora; }
         }
       }
     }
@@ -104,6 +106,7 @@ class Estrategia extends EventEmitter {
     const e = this._estado(simbolo);
     const arr = e.velas[tf];
     if (arr.length && arr[arr.length - 1].t >= vela.t) return; // duplicado/fuera de orden
+    if (vela.t > e.ahora) e.ahora = vela.t;                    // reloj de mercado
     arr.push({ ...vela });
     if (arr.length > this.cfg.maxVelas[tf]) arr.shift();
 
@@ -150,8 +153,8 @@ class Estrategia extends EventEmitter {
     const e = this._estado(simbolo);
     if (e.velas.M15.length < 6 || !e.atr) return;
     this._chequearPivote(simbolo, e.velas.M15.length - 3);
-    // purga: zonas muertas hace más de 48 h
-    const corte = Date.now() - 48 * 3600e3;
+    // purga: zonas muertas hace más de 48 h (en tiempo de mercado)
+    const corte = e.ahora - 48 * 3600e3;
     e.zonas = e.zonas.filter((z) => !(z.estado === 'muerta' && z.muertaEn < corte));
   }
 
@@ -194,7 +197,7 @@ class Estrategia extends EventEmitter {
         ? vela.c < z.nivel - this.cfg.tnAtr * e.atr
         : vela.c > z.nivel + this.cfg.tnAtr * e.atr;
       if (fuera) {
-        z.estado = 'muerta'; z.muertaEn = Date.now();
+        z.estado = 'muerta'; z.muertaEn = e.ahora;
         this.emit('tn', { simbolo, zona: this._vista(z), vela, motivo: 'cierre M15 más allá de la zona' });
       }
     }
@@ -228,7 +231,7 @@ class Estrategia extends EventEmitter {
       const lado = compra ? 'COMPRA' : 'VENTA';
 
       const ult = e.ultSenalZona.get(z.id) || 0;
-      if (Date.now() - ult < this.cfg.dedupMin * 60e3) continue;
+      if (e.ahora - ult < this.cfg.dedupMin * 60e3) continue;
 
       let score = PESO_FASE[fase]
         + Math.min(25, z.fuerza * 5)   // fuerza de zona (pivotes acumulados)
@@ -237,7 +240,7 @@ class Estrategia extends EventEmitter {
       score = Math.min(100, score);
       if (score < this.cfg.scoreMin) continue;
 
-      e.ultSenalZona.set(z.id, Date.now());
+      e.ultSenalZona.set(z.id, e.ahora);
       this.emit('senal', {
         lado, fase, simbolo,
         nivel: +z.nivel.toFixed(2),
@@ -246,7 +249,7 @@ class Estrategia extends EventEmitter {
         sesgo: e.sesgo, fuerzaZona: z.fuerza, toques: z.toques,
         sl: compra ? +(z.nivel - e.atr).toFixed(2) : +(z.nivel + e.atr).toFixed(2),
         tp: compra ? +(vela.c + 2 * e.atr).toFixed(2) : +(vela.c - 2 * e.atr).toFixed(2),
-        t: Date.now(),
+        t: e.ahora,
         motivo: `${fase} en ${z.tipo} (fuerza ${z.fuerza}) con sesgo H1 al ${e.sesgo}`,
       });
     }
