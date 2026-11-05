@@ -1,0 +1,15 @@
+{
+  "name": "weltrade-motor-senales",
+  "version": "1.0.0",
+  "description": "Motor de señales original para índices sintéticos Weltrade: zonas por pivotes, toques EARLY/MAIN/LATE, cancelación TN, sesgo multi-timeframe. Sin dependencias.",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "node test_estrategia.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "private": true
+}

@@ -80,6 +80,7 @@ done
 | Ticks (cmd 8) | registros de 50 B: `[u32 id][u32 hora][f64 bid×100 @12][f64 ask×100 @20][u32 seq @44]` |
 | Keep-alive | cmd 51 cada 8 s |
 | Cuenta (cmd 17) | balance/equity periódico (estructura pendiente de afinar) |
+| Velas (cmd 11) | petición: símbolo UTF-16LE en packet[4], u16 `PERIOD_*` de MT5 en LE @68 (H1=0x4001, M15=15, M5=5...), `[u32 desde][u32 hasta]` @70; respuesta: registros de 48 B `[u32 t][f64 o][f64 h][f64 l][f64 c][u32 vol][u32 ?]`. Verificado en vivo (motor-senales) |
 
 Comandos conocidos: 0=handshake, 3/9=config, 4=market watch, 5=posiciones,
 6=catálogo, 7=suscripción ticks, 8=stream ticks, 11=velas, 17=cuenta,
