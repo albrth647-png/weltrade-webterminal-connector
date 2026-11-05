@@ -36,6 +36,8 @@ terceros**. Solo Node.js (~15 KB de código), pensado para correr en un
 | [`conector/`](conector/) | **El producto final**: `conector.js` (protocolo nativo), `instalar.sh` (Termux), `.env.ejemplo`, `LEEME.md` (guía completa + protocolo revertido), muestra de frames reales |
 | `weltrade-conector-termux.zip` | El conector empaquetado en un zip para pasar al teléfono |
 | [`docs/`](docs/) | Guía de instalación y uso de REA + Ghidra (el stack de ingeniería inversa usado) |
+| [`docs/RAPTOR_dossier_intel.md`](docs/RAPTOR_dossier_intel.md) | Dossier de inteligencia: qué es el RAPTOR (EA MT5 de SIFO), su sistema de señales WebScan y el plan de un equivalente propio |
+| [`docs/evidencia_sifo_i18n.json`](docs/evidencia_sifo_i18n.json) | Evidencia cruda: objetos i18n literales extraídos del HTML público de sifotrader.com (raptor, signals/WebScan, planes) |
 | [`scripts_re/`](scripts_re/) | Los 15 scripts con los que se hizo la ingeniería inversa: captura del bundle con REA, decodificación del protocolo, bisect de la clave, verificación del conector, script de Ghidra |
 | [`evidencia/`](evidencia/) | Capturas de la sesión real (login demo OK), logs binarios del protocolo, bundle capturado, sesiones decodificadas, JS del cliente oficial (zip) |
 

@@ -1,0 +1,284 @@
+{
+  "_meta": {
+    "fuente": "https://www.sifotrader.com/ (HTML publico, payload RSC Next.js)",
+    "capturado": "2026-11-05",
+    "metodo": "Descarga pasiva con curl del HTML publico servido a cualquier navegador. Sin bypass de paywalls, sin acceso a contenido de pago.",
+    "nota": "Estos objetos i18n forman parte de la interfaz publica del sitio (diccionarios de idioma que el navegador descarga para renderizar la app). Se transcriben literales, sin edicion.",
+    "peso_html_bytes": 4371041
+  },
+  "objeto_raptor": {
+    "title": "Raptor",
+    "subtitle": "Conecta tus cuentas MT5 para usar el indicador The Raptor.",
+    "accountsTitle": "Cuentas MT5",
+    "accountsDescription": "Registra el número de cuenta MT5. SIFO validará el acceso cuando abras el indicador.",
+    "loading": "Cargando cuentas…",
+    "emptyState": "Aún no tienes cuentas conectadas.",
+    "slotsSummary": "{used} de {max} cuentas registradas ({remaining} disponibles).",
+    "slotsCount": "{used} de {max}",
+    "allSlotsUsed": "Ya alcanzaste el máximo de cuentas permitidas. Elimina una para añadir otra.",
+    "registrationsClosed": "El registro de cuentas está cerrado por ahora.",
+    "loginLabel": "Número de cuenta MT5",
+    "loginPlaceholder": "12345678",
+    "setup": {
+      "button": "Descargar",
+      "title": "Configurar Raptor",
+      "stepOpen": "Abre el enlace de descarga.",
+      "stepDownload": "Descarga el EA.",
+      "stepUnzip": "Descomprime el archivo.",
+      "stepInstall": "Haz clic en instalar.",
+      "download": "Descargar EA",
+      "unavailable": "El enlace de descarga todavía no está disponible."
+    },
+    "addAccount": "Conectar cuenta",
+    "saving": "Guardando…",
+    "remove": "Eliminar",
+    "inactiveSlot": "Inactiva (elimina para liberar un cupo activo)",
+    "limitHint": "Puedes registrar hasta {max} cuentas MT5.",
+    "toast": {
+      "loadFailed": "No se pudieron cargar tus cuentas.",
+      "saveFailed": "No se pudo registrar la cuenta.",
+      "deleteFailed": "No se pudo eliminar la cuenta.",
+      "genericError": "Algo salió mal. Inténtalo de nuevo.",
+      "forbidden": "Necesitas una membresía de pago para conectar The Raptor.",
+      "invalidInput": "Indica un número de cuenta MT5 válido.",
+      "maxAccounts": "Ya alcanzaste el máximo de cuentas permitidas.",
+      "allSlotsUsed": "Ya alcanzaste el máximo de cuentas permitidas.",
+      "duplicateAccount": "Esa cuenta MT5 ya está registrada en SIFO.",
+      "added": "Cuenta conectada.",
+      "removed": "Cuenta eliminada."
+    }
+  },
+  "objeto_signals_webscan": {
+    "title": "WebScan",
+    "upgradeDescription": "Accede a señales de trading en tiempo real e información del mercado con WebScan.",
+    "upgrade": {
+      "title": "Desbloquear {featureName}",
+      "description": "Accede a {featureName} para desbloquear información y funciones poderosas.",
+      "joinMessage": "Únete a {courseName} para desbloquear esta poderosa función.",
+      "button": "Desbloquear {featureName}",
+      "hint": "Esta función está disponible después de actualizar. El acceso puede tardar entre 12 y 24 horas en activarse."
+    },
+    "preferences": {
+      "title": "Preferencias",
+      "description": "Personaliza qué símbolos y timeframes se muestran en tu webscan",
+      "loading": "Cargando preferencias...",
+      "button": "Preferencias",
+      "selectTouches": "Seleccionar toques",
+      "early": "Temprano",
+      "main": "Principal",
+      "late": "Tardío",
+      "rawAlerts": "Historial de alertas",
+      "tabs": {
+        "symbols": "Símbolos",
+        "timeframes": "Timeframes"
+      },
+      "notifications": {
+        "title": "Notificaciones",
+        "sound": {
+          "label": "Notificación de Sonido",
+          "description": "Reproducir sonido cuando lleguen nuevas señales"
+        },
+        "side": {
+          "label": "Notificación Lateral",
+          "description": "Mostrar notificaciones laterales cuando lleguen nuevas señales (el brillo y la campana siempre se muestran)"
+        }
+      },
+      "symbols": {
+        "title": "Símbolos de Trading",
+        "description": "Selecciona qué símbolos de trading mostrar en tu webscan",
+        "selectedCount": "{selectedCount} de {total} seleccionados"
+      },
+      "timeframes": {
+        "title": "Timeframes",
+        "description": "Selecciona qué timeframes mostrar en tu webscan"
+      },
+      "sortTimeframesHint": "Clic para invertir: timeframes más bajos arriba o abajo",
+      "buttons": {
+        "selectAll": "Seleccionar Todo",
+        "deselectAll": "Deseleccionar Todo",
+        "cancel": "Cancelar",
+        "saving": "Guardando...",
+        "save": "Guardar Preferencias"
+      },
+      "error": {
+        "saveFailed": "Error al guardar las preferencias. Por favor, inténtalo de nuevo."
+      }
+    },
+    "connectMT5": {
+      "button": "Conectar MT5",
+      "title": "Conectar MT5",
+      "subtitle": "Haz clic en una señal. Abre el gráfico al instante.",
+      "yourUserId": "Tu ID de Usuario",
+      "copyButton": "Copiar",
+      "userIdCopied": "ID de usuario copiado",
+      "copyFailed": "Error al copiar",
+      "downloadButton": "Descargar WebScan Pro",
+      "downloadHint": "Incluye instalador y guía de configuración. Solo Windows.",
+      "quickSetupTitle": "Configuración Rápida",
+      "step1": "Instala WebScan Pro",
+      "step2": "Pega tu ID de Usuario",
+      "step3": "Haz clic en Conectar",
+      "step4": "Abre MT5 y carga Command EA"
+    },
+    "rawSignals": {
+      "eventTnLabel": "TN (Cancelación)",
+      "backToWebScan": "Volver a WebScan",
+      "title": "Historial de alertas",
+      "subtitle": "Ver el historial de alertas recibidas para validación.",
+      "refresh": "Actualizar",
+      "filteredByPreferences": "Filtrado por tus preferencias de WebScan",
+      "showAllBypass": "Mostrar todo (omitir preferencias)",
+      "clear": "Limpiar",
+      "searchPlaceholder": "Buscar broker, símbolo...",
+      "selectBrokers": "Seleccionar brokers",
+      "allBrokers": "Todos los brokers",
+      "selectSymbols": "Seleccionar símbolos",
+      "allSymbols": "Todos los símbolos",
+      "selectTimeframes": "Seleccionar timeframes",
+      "allTimeframes": "Todos los timeframes",
+      "selectTouches": "Seleccionar toques",
+      "allEvents": "Todos los eventos",
+      "allSides": "Todos los lados",
+      "allTime": "Todo el tiempo",
+      "customRange": "Rango personalizado",
+      "pickDateRange": "Elegir rango de fechas",
+      "quickRange30m": "Últimos 30 min",
+      "quickRange1h": "Última 1h",
+      "quickRange2h": "Últimas 2h",
+      "quickRange6h": "Últimas 6h",
+      "quickRange12h": "Últimas 12h",
+      "quickRange1d": "Último día",
+      "quickRange1w": "Última semana",
+      "quickRange1M": "Último mes",
+      "showingCount": "Mostrando {from} - {to} de {total} alertas",
+      "allDatesTimezone": "Todas las fechas se muestran en tu zona horaria local",
+      "perPage": "Por página:",
+      "broker": "Broker",
+      "symbol": "Símbolo",
+      "timeframe": "Timeframe",
+      "side": "Lado",
+      "event": "Evento",
+      "alertTimestamp": "Fecha y hora de alerta",
+      "receivedAt": "Recibido el",
+      "noAlertsFound": "No se encontraron alertas con los filtros seleccionados.",
+      "alertIdTooltip": "ID de alerta: {id}"
+    }
+  },
+  "objeto_webscan_nav": {
+    "title": "WebScan",
+    "description": "Escáner de señales en tiempo real para tus símbolos y timeframes."
+  },
+  "objeto_plan_membresia_gold": {
+    "title": "Membresía",
+    "subtitle": "SIFO University más LMC Academy, clases en vivo con el Master Yoel y acceso completo a la plataforma.",
+    "includesHeading": "Qué incluye Membresía",
+    "includesIntro": "Membresía incluye SIFO University, LMC Academy y el resto de herramientas de la membresía.",
+    "includesPremiumNote": "Incluye todo el acceso de la plataforma. LMC Academy es exclusivo de Membresía.",
+    "comingSoon": "Próximamente",
+    "priceLabel": "Precio",
+    "priceValue": "{price}/mes",
+    "priceCadence": "Suscripción mensual. Cancela cuando quieras.",
+    "joinCta": "Unirse a Membresía",
+    "joinDialog": {
+      "title": "Pagos en línea muy pronto",
+      "description": "Estamos conectando el checkout seguro. Vuelve en unos días o escríbenos si necesitas activar tu cuenta antes.",
+      "ok": "Entendido"
+    },
+    "checkout": {
+      "title": "Completa tu pago",
+      "subtitle": "Pago seguro con Hotmart. Tarjeta o PayPal.",
+      "loading": "Cargando el checkout seguro de Hotmart…",
+      "back": "Volver",
+      "taxNote": "El precio final puede incluir impuestos según tu país. Hotmart calcula el total al pagar.",
+      "cardHint": "Con tarjeta o PayPal, tu acceso se activa automáticamente, normalmente en menos de un minuto.",
+      "asyncEscapePrompt": "¿Pagaste con PIX, boleto u OXXO?",
+      "asyncEscapeCta": "Continuar sin esperar",
+      "stillProcessing": "¿Sigue procesando? Si pagaste con PIX, boleto u OXXO, puedes continuar sin esperar."
+    },
+    "pending": {
+      "title": "Estamos activando tu plan Membresía",
+      "body": "Si pagaste con PIX, boleto u OXXO, la confirmación puede tardar unas horas. No necesitas quedarte en esta página — vuelve más tarde para ver tu acceso activo.",
+      "homeCta": "Ir al inicio",
+      "back": "Volver"
+    },
+    "welcome": {
+      "kicker": "¡Lo lograste!",
+      "title": "¡Bienvenido a Membresía!",
+      "body": "Ya tienes SIFO University y LMC Academy. Es hora de entrar a las clases en vivo.",
+      "lmcCta": "Ir a LMC Academy",
+      "academyCta": "Ver SIFO University"
+    },
+    "alreadyMember": "Ya eres parte de Membresía. Gracias por tu apoyo.",
+    "activatingAccount": "Estamos activando tu plan Membresía. Si pagaste con PIX, boleto u OXXO, esto puede tardar unas horas.",
+    "video": {
+      "placeholderTitle": "Video de presentación",
+      "placeholderDescription": "Aquí verás el mensaje sobre Membresía en cuanto esté listo.",
+      "iframeTitle": "Video Membresía SIFO",
+      "playLabel": "Reproducir video Membresía"
+    },
+    "features": {
+      "lmc": {
+        "title": "LMC Academy",
+        "description": "Aulas y calendario exclusivos de Lion Mode Club."
+      },
+      "classes": {
+        "title": "4 clases semanales con el Master Yoel",
+        "description": "En el calendario de LMC Academy. Solo para miembros con Membresía."
+      },
+      "webcam": {
+        "title": "Webcam en vivo",
+        "description": "Sigue las sesiones en vivo desde LMC Academy."
+      },
+      "raptor": {
+        "title": "Raptor Indicator",
+        "description": "Incluido en Membresía como preventa. El indicador se entrega cuando Yoel lo publique."
+      }
+    }
+  },
+  "objeto_planes": {
+    "premium": "Membresía",
+    "gold": "Membresía",
+    "blackRoom": "Black Room",
+    "none": "Sin plan de pago"
+  },
+  "objeto_upgrade": {
+    "title": "Elige tu plan",
+    "subtitle": "Empieza con SIFO University, o entra también a LMC Academy.",
+    "titleSolo": "Tu membresía SIFO",
+    "subtitleSolo": "Todo SIFO University, LMC Academy, clases en vivo y más en un solo plan.",
+    "currentPlan": "Tu plan actual",
+    "currentLicense": "Tu licencia actual",
+    "activatingPlan": "Activando…",
+    "switchPlan": {
+      "title": "Mejora a Membresía en Hotmart",
+      "description": "Ya tienes una suscripción en Hotmart. El cambio se hace sobre esa misma suscripción: Hotmart cobra solo la diferencia del periodo que te queda y no abre un segundo plan.",
+      "step1": "Entra a Mis compras en Hotmart.",
+      "step2": "Abre tu suscripción SIFO y elige administrar la suscripción.",
+      "step3": "Cambia el plan a Membresía y confirma.",
+      "openHotmart": "Cambiar plan en Hotmart",
+      "watchTutorial": "Ver cómo hacerlo",
+      "hideTutorial": "Ocultar video",
+      "videoHint": "Para dejar el video visible sobre Hotmart, usa la mini ventana del reproductor antes de cambiar de pestaña.",
+      "iframeTitle": "Cómo cambiar tu plan a Membresía en SIFO",
+      "notEligible": "Si Hotmart no te deja cambiar el plan (último cobro del ciclo, un cambio reciente, periodo de prueba o renovación anticipada), escríbenos y lo resolvemos.",
+      "supportCta": "Contactar soporte",
+      "close": "Cerrar"
+    },
+    "businessLicenseTitle": "Licencia Business",
+    "businessLicenseSubtitle": "Licencia anual para vender en SIFO. No es un plan de membresía.",
+    "businessLicenseCta": "Obtener licencia",
+    "claimTitle": "Ya pagué en Hotmart",
+    "claimSubtitle": "Si compraste fuera de SIFO, pega el id de transacción (empieza por HP). El correo de Hotmart tiene que ser el de esta cuenta.",
+    "claimPlaceholder": "HP3197882677",
+    "claimAction": "Vincular pago",
+    "claimPending": "Vinculando…",
+    "claimSuccess": "Listo. Tu acceso se actualizó.",
+    "claimFailed": "No se pudo vincular el pago.",
+    "video": {
+      "placeholderTitle": "Video de presentación",
+      "placeholderDescription": "Aquí verás el mensaje sobre los planes en cuanto esté listo.",
+      "iframeTitle": "Video membresía SIFO",
+      "playLabel": "Reproducir video de planes"
+    }
+  }
+}
