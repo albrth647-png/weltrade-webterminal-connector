@@ -1,0 +1,11 @@
+# credenciales reales — nunca subir
+.env
+.env.*
+!.env.ejemplo
+
+# basura local
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

@@ -1,0 +1,55 @@
+[
+ {
+  "frame": "ltrade.org/terminal?theme-mode=1&lang=en",
+  "items": [
+   {
+    "tag": "INPUT",
+    "type": "radio",
+    "ph": "",
+    "val": "1",
+    "txt": "",
+    "cls": "svelte-1fpl6bt"
+   },
+   {
+    "tag": "INPUT",
+    "type": "text",
+    "ph": "Enter Login",
+    "val": "",
+    "txt": "",
+    "cls": "svelte-1lfgcg6"
+   },
+   {
+    "tag": "INPUT",
+    "type": "password",
+    "ph": "Enter Password",
+    "val": "",
+    "txt": "",
+    "cls": "svelte-1lfgcg6"
+   },
+   {
+    "tag": "INPUT",
+    "type": "checkbox",
+    "ph": "",
+    "val": "on",
+    "txt": "",
+    "cls": "svelte-ir5qn3"
+   },
+   {
+    "tag": "BUTTON",
+    "type": "button",
+    "ph": "",
+    "val": "",
+    "txt": "Contact company",
+    "cls": "svelte-1t8cot"
+   },
+   {
+    "tag": "BUTTON",
+    "type": "submit",
+    "ph": "",
+    "val": "",
+    "txt": "Connect to account",
+    "cls": "button svelte-1ngezcu active"
+   }
+  ]
+ }
+]
