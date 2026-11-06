@@ -1,0 +1,74 @@
+name: MT5 Lab (Windows nativo)
+# Fallback sin Wine: MT5 nativo en runner Windows. OJO: en repos privados los
+# runners Windows consumen minutos al doble (2x). Usar solo si falla el de Linux.
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Simbolo"
+        default: "XAUUSD"
+        required: false
+      period:
+        description: "Periodo"
+        default: "H1"
+        required: false
+      from_date:
+        description: "Backtest desde"
+        default: "2025.01.01"
+        required: false
+      to_date:
+        description: "Backtest hasta"
+        default: "2025.12.31"
+        required: false
+      login:
+        description: "Login DEMO (vacio = usar secret MT5_LOGIN)"
+        required: false
+        default: ""
+      password:
+        description: "Password DEMO (vacio = usar secret MT5_PASSWORD)"
+        required: false
+        default: ""
+      server:
+        description: "Servidor (vacio = usar secret MT5_SERVER)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Descargar bot .ex5 (release bot-assets)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path bot_dir | Out-Null
+          gh release download bot-assets --pattern "*.ex5" --dir bot_dir --repo $env:GITHUB_REPOSITORY
+          Get-ChildItem bot_dir
+
+      - name: Laboratorio MT5 (nativo)
+        shell: pwsh
+        env:
+          MT5_LOGIN: ${{ github.event.inputs.login || secrets.MT5_LOGIN }}
+          MT5_PASSWORD: ${{ github.event.inputs.password || secrets.MT5_PASSWORD }}
+          MT5_SERVER: ${{ github.event.inputs.server || secrets.MT5_SERVER }}
+          LAB_SYMBOL: ${{ github.event.inputs.symbol || 'XAUUSD' }}
+          LAB_PERIOD: ${{ github.event.inputs.period || 'H1' }}
+          LAB_FROM: ${{ github.event.inputs.from_date || '2025.01.01' }}
+          LAB_TO: ${{ github.event.inputs.to_date || '2025.12.31' }}
+        run: .\scripts_re\lab\mt5_lab_windows.ps1 -Symbol "$env:LAB_SYMBOL" -Period "$env:LAB_PERIOD" -FromDate "$env:LAB_FROM" -ToDate "$env:LAB_TO"
+
+      - name: Artifact (logs + informe + strings)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-lab-results
+          path: lab_out
+          retention-days: 30
+          if-no-files-found: warn

@@ -1,0 +1,91 @@
+name: MT5 Lab (Linux/Wine)
+# Laboratorio RE de MT5 en runner gratuito de GitHub: instala MT5 sobre Wine,
+# corre el bot en el Probador de Estrategias y vuelca su memoria descifrada.
+# Resultados: artifact 'mt5-lab-results' (logs + informe de operaciones + strings).
+# Disparo: solo manual (workflow_dispatch), desde la web de GitHub o por API con token.
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Simbolo"
+        default: "XAUUSD"
+        required: false
+      period:
+        description: "Periodo"
+        default: "H1"
+        required: false
+      from_date:
+        description: "Backtest desde"
+        default: "2025.01.01"
+        required: false
+      to_date:
+        description: "Backtest hasta"
+        default: "2025.12.31"
+        required: false
+      login:
+        description: "Login DEMO (vacio = usar secret MT5_LOGIN)"
+        required: false
+        default: ""
+      password:
+        description: "Password DEMO (vacio = usar secret MT5_PASSWORD)"
+        required: false
+        default: ""
+      server:
+        description: "Servidor (vacio = usar secret MT5_SERVER)"
+        required: false
+        default: ""
+      run_ghidra:
+        description: "Buscar cargador .ex5 con Ghidra (anade ~1h)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sistema (Wine + Xvfb)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb winbind unzip xdotool > /dev/null
+          CODENAME="$(. /etc/os-release && echo $VERSION_CODENAME)"
+          sudo wget -qO "/etc/apt/sources.list.d/winehq-${CODENAME}.sources" \
+            "https://dl.winehq.org/wine-builds/ubuntu/dists/${CODENAME}/winehq-${CODENAME}.sources"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq winehq-stable > /dev/null
+          wine --version
+
+      - name: Descargar bot .ex5 (release bot-assets)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p bot_dir
+          gh release download bot-assets --pattern "*.ex5" --dir bot_dir --repo "$GITHUB_REPOSITORY"
+          ls -la bot_dir
+
+      - name: Laboratorio MT5 (Wine + Probador de Estrategias)
+        env:
+          MT5_LOGIN: ${{ github.event.inputs.login || secrets.MT5_LOGIN }}
+          MT5_PASSWORD: ${{ github.event.inputs.password || secrets.MT5_PASSWORD }}
+          MT5_SERVER: ${{ github.event.inputs.server || secrets.MT5_SERVER }}
+          LAB_SYMBOL: ${{ github.event.inputs.symbol || 'XAUUSD' }}
+          LAB_PERIOD: ${{ github.event.inputs.period || 'H1' }}
+          LAB_FROM: ${{ github.event.inputs.from_date || '2025.01.01' }}
+          LAB_TO: ${{ github.event.inputs.to_date || '2025.12.31' }}
+          RUN_GHIDRA: ${{ github.event.inputs.run_ghidra || 'false' }}
+        run: python3 scripts_re/lab/mt5_lab_linux.py
+
+      - name: Artifact (logs + informe + strings)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-lab-results
+          path: lab_out
+          retention-days: 30
+          if-no-files-found: warn
