@@ -65,16 +65,39 @@ time.sleep(2)
 paso(2, "Descarga e instalacion de MetaTrader 5 (/auto)")
 term = os.path.expanduser("~/.wine/drive_c/Program Files/MetaTrader 5/terminal64.exe")
 setup = os.path.join(WORK, "mt5setup.exe")
+# Sin Mono/Gecko: evita los dialogos que cuelgan wineboot en prefijos nuevos
+os.environ["WINEDLLOVERRIDES"] = "mscoree,mshtml="
 if not os.path.exists(term):
-    sh('wget -qO %s "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"' % setup, show=False)
-    print("   instalador:", os.path.getsize(setup), "bytes")
-    sh('DISPLAY=:99 wineboot -u && DISPLAY=:99 wine %s /auto' % setup, timeout=900)
+    cached = os.path.join(REPO, "bot_dir", "mt5setup.exe")
+    if os.path.exists(cached):
+        shutil.copy2(cached, setup)
+        print("   instalador desde release (cache)", flush=True)
+    else:
+        sh('wget -qO %s "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"' % setup, show=False)
+    print("   instalador:", os.path.getsize(setup), "bytes", flush=True)
+    try:
+        sh('DISPLAY=:99 wineboot -u', timeout=1500)
+    except Exception:
+        print("   wineboot demorado; el instalador crea el prefijo igualmente", flush=True)
+    print("   instalador /auto en segundo plano (vigilado hasta 40 min)", flush=True)
+    p = subprocess.Popen(["wine", setup, "/auto"], cwd=WORK, env=dict(os.environ),
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    t_inst = time.time()
+    n = 0
+    while not os.path.exists(term) and time.time() - t_inst < 2400:
+        if p.poll() is not None:
+            print("   instalador /auto termino (rc=%s)" % p.returncode, flush=True)
+            break
+        time.sleep(20)
+        n += 1
+        if n % 9 == 0:
+            print("   instalando... %d min" % (int(time.time() - t_inst) // 60), flush=True)
     if not os.path.exists(term):
-        print("   /auto no dejo terminal64.exe; reintento con pantalla + Enter automatico...")
+        print("   /auto no dejo terminal64.exe; reintento con pantalla + Enter automatico...", flush=True)
         subprocess.Popen(["wine", setup], cwd=WORK, env=dict(os.environ),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(25)
-        for _ in range(30):
+        for _ in range(40):
             sh('DISPLAY=:99 xdotool key Return 2>/dev/null', show=False)
             time.sleep(10)
             if os.path.exists(term):
