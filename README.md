@@ -38,10 +38,49 @@ terceros**. Solo Node.js (~15 KB de código), pensado para correr en un
 | [`docs/`](docs/) | Guía de instalación y uso de REA + Ghidra (el stack de ingeniería inversa usado) |
 | [`docs/RAPTOR_dossier_intel.md`](docs/RAPTOR_dossier_intel.md) | Dossier de inteligencia: qué es el RAPTOR (EA MT5 de SIFO), su sistema de señales WebScan y el plan de un equivalente propio |
 | [`docs/evidencia_sifo_i18n.json`](docs/evidencia_sifo_i18n.json) | Evidencia cruda: objetos i18n literales extraídos del HTML público de sifotrader.com (raptor, signals/WebScan, planes) |
-| [`motor-senales/`](motor-senales/) | ⭐ Motor de señales original (equivalente propio del estilo Raptor): zonas + toques EARLY/MAIN/LATE + TN + sesgo multi-TF, tests, Telegram y despliegue Render |
+| [`motor-senales/`](motor-senales/) | ⭐ Motor de señales (equivalente propio del estilo Raptor): zonas + toques EARLY/MAIN/LATE + TN + sesgo multi-TF, **estrategia como documento externo** con panel web de importación, tests, Telegram y despliegue Render |
 | [`backtest_raptor/`](backtest_raptor/) | Backtest con datos reales (1 año × FX Vol 20/60/99): 3.341 señales, WR 45,7%, PF 1,27 — `reporte.md` + `senales.csv` señal a señal |
 | [`scripts_re/`](scripts_re/) | Los 15 scripts con los que se hizo la ingeniería inversa: captura del bundle con REA, decodificación del protocolo, bisect de la clave, verificación del conector, script de Ghidra |
 | [`evidencia/`](evidencia/) | Capturas de la sesión real (login demo OK), logs binarios del protocolo, bundle capturado, sesiones decodificadas, JS del cliente oficial (zip) |
+
+## 🧠 Estrategia como documento (CERO estrategia en el código)
+
+El motor **no contiene ninguna estrategia**: solo el vocabulario genérico
+(pivotes, fases, TN, sesgo, scoring). Todos los valores viven en un
+**documento externo** (`motor-senales/estrategias/`):
+
+- `raptor_default.json` — documento de referencia (= baseline del backtest:
+  3.341 señales, PF 1,27). Viaja con el paquete.
+- `activa.json` — la estrategia en marcha; se crea al activar desde la web.
+
+### Panel web con botón de importación
+
+Al arrancar `node app.js`, abre `http://localhost:3000/` (o la URL de Render):
+
+1. **Importar documento** — acepta los documentos de bots de MT5 de escritorio:
+
+   | Formato | Qué extrae |
+   |---|---|
+   | `.json` / `.md` / `.txt` | Documento de estrategia directo (o bloque ```json embebido) |
+   | `.set` | Parámetros de un Expert de MT5 → los que coinciden se mapean, el resto se lista |
+   | `.tpl` | Plantilla de gráfico: indicadores (EMA→sesgo, ATR→periodo, Fractals→zonas) |
+   | `.mq5` / `.mq4` / `.mqh` | Código fuente: inputs, llamadas a indicadores, órdenes C/V (anatomía) |
+   | `.ex5` / `.ex4` | **Radiografía**: autor, link, versión, build, entropía — el cuerpo va cifrado por MetaQuotes |
+
+2. **Validar** — el validador es ESTRICTO: un documento incompleto se rechaza
+   con la lista exacta de lo que falta.
+3. **Activar** — hot-swap sin reiniciar: el motor se reconstruye y re-siembra
+   el historial al vuelo.
+
+También por API: `POST /importar?nombre=x.set` (cuerpo = bytes crudos),
+`POST /estrategia/validar`, `POST /estrategia/activar`,
+`POST /estrategia/restaurar`, `GET /estrategia`.
+
+Todo lo importado queda copiado en `estrategias/importados/` (auditoría). El
+importador **nunca inventa estrategia**: los borradores parten de la plantilla
+neutra y solo aplican parámetros extraídos con certeza. Para el cuerpo cifrado
+de los `.ex5/.ex4` (reglas internas del bot adversario) está el plan de
+ingeniería inversa en [`docs/REA_Ghidra_Guia.md`](docs/REA_Ghidra_Guia.md).
 
 ## 🚀 Arranque rápido (Termux)
 
@@ -77,5 +116,6 @@ en `.gitignore`. El `.env.ejemplo` solo contiene placeholders.
   Weltrade/MetaQuotes: úsala bajo tu responsabilidad, idealmente en demo.
 - Los índices sintéticos son mercados generados por el propio broker (él es tu
   contraparte). Ningún conector cambia eso: infórmate y gestiona el riesgo.
-- Este repo **no** incluye bots ni estrategias: es únicamente el conector y la
-  evidencia de la ingeniería inversa.
+- El motor **no incluye ninguna estrategia embebida**: las estrategias son
+  documentos externos que tú cargas (de tu propia autoría o revisados por ti).
+  Importar la anatomía de un bot ajeno no sustituye respetar su licencia.
