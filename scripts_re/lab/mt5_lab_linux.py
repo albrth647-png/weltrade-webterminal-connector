@@ -97,15 +97,51 @@ os.makedirs(os.path.join(MT5DIR, "MQL5", "Experts"), exist_ok=True)
 shutil.copy2(EA, os.path.join(MT5DIR, "MQL5", "Experts", os.path.basename(EA)))
 
 # ---------------------------------------------------------------- 4. primer arranque
-paso(4, "Primer arranque con login DEMO (4 min, descarga historial)")
-ini_login = os.path.join(WORK, "login.ini")
-open(ini_login, "w").write("\n".join(["[Common]", "Login=" + LOGIN, "Password=" + PASSWORD,
-                                      "Server=" + SERVER, "News=0", ""]))
-subprocess.Popen(["wine", term, "/portable", "/config:" + ini_login], cwd=MT5DIR,
-                 env=dict(os.environ), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-for _ in range(4):
-    time.sleep(60)
-    sh('tail -n 3 "%s/logs/"*.log 2>/dev/null | tail -n 4' % MT5DIR, show=True)
+# MT5_SERVER admite varios candidatos separados por ';' y se prueban en orden:
+# el primero que autorice el login gana (auto-descubrimiento del servidor).
+paso(4, "Login DEMO con auto-descubrimiento de servidor (hasta 4 min por candidato)")
+SERVIDORES = [s.strip() for s in SERVER.split(";") if s.strip()]
+assert SERVIDORES, "MT5_SERVER vacio"
+
+def log_terminal():
+    logs = sorted(glob.glob(os.path.join(MT5DIR, "logs", "*.log")), key=os.path.getmtime)
+    if not logs:
+        return ""
+    try:
+        return open(logs[-1], errors="replace").read().lower()
+    except Exception:
+        return ""
+
+EXITO = ("authorized", "logged in")
+DURO = ("login failed", "authorization failed", "invalid login", "invalid password",
+        "invalid account", "account disabled", "cannot find")
+conectado = None
+for cand in SERVIDORES:
+    print("   servidor:", cand, flush=True)
+    ini_login = os.path.join(WORK, "login.ini")
+    open(ini_login, "w").write("\n".join(["[Common]", "Login=" + LOGIN, "Password=" + PASSWORD,
+                                          "Server=" + cand, "News=0", ""]))
+    subprocess.Popen(["wine", term, "/portable", "/config:" + ini_login], cwd=MT5DIR,
+                     env=dict(os.environ), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    motivo = "sin respuesta"
+    for _ in range(4):
+        time.sleep(60)
+        t = log_terminal()
+        if any(m in t for m in EXITO):
+            conectado = cand
+            print("   -> AUTORIZADO en", cand, flush=True)
+            break
+        d = [m for m in DURO if m in t]
+        if d:
+            motivo = "rechazado: " + d[0]
+            break
+    if conectado:
+        break
+    print("   ->", motivo, flush=True)
+    sh("wineserver -k || true", show=False)
+    time.sleep(5)
+SERVER = conectado or SERVIDORES[0]
+print("   servidor final:", SERVER, "(%s)" % ("conectado" if conectado else "sin confirmar; los logs lo diran"))
 sh("wineserver -k || true", show=False)
 time.sleep(5)
 
@@ -113,6 +149,7 @@ time.sleep(5)
 paso(5, "Probador de estrategias + volcado de memoria en paralelo (15-90 min)")
 ini_test = os.path.join(WORK, "tester.ini")
 open(ini_test, "w").write("\n".join([
+    "[Common]", "Login=" + LOGIN, "Password=" + PASSWORD, "Server=" + SERVER,
     "[Tester]", "Expert=" + os.path.basename(EA), "Symbol=" + SYMBOL, "Period=" + PERIOD,
     "FromDate=" + FROMD, "ToDate=" + TOD, "Model=1", "Deposit=10000", "Currency=USD",
     "Leverage=100", "Report=goldrush_report", "Shutdown=1", ""]))
