@@ -136,5 +136,30 @@ ok(r.erroresValidacion.some((x) => x.includes('toques.bandaAtr')), '9b) lista un
 r = importarDocumento('vacio.ex5', Buffer.alloc(0));
 ok(!r.ok, '10) archivo vacío rechazado');
 
+// 11) .mt5 con magia EX5 (caso típico: bot compilado renombrado/guardado como .mt5)
+const ex5ComoMt5 = Buffer.concat([
+  Buffer.from('EX5', 'latin1'), Buffer.from([2]),
+  Buffer.alloc(0xA8 - 4),
+  slotUtf16('AutorB'), slotUtf16('https://b.example'), slotUtf16('1.2'),
+  Buffer.alloc(1024).map(() => Math.floor(Math.random() * 256)),
+]);
+r = importarDocumento('BotAdversario.mt5', ex5ComoMt5);
+ok(r.ok && r.tipo === 'mt5' && r.hallazgos.autor === 'AutorB' && r.hallazgos.link === 'https://b.example',
+  `11a) .mt5 (magia EX5): radiografía con autor/link (obtuvo ${r.hallazgos.autor}/${r.hallazgos.link})`);
+ok(r.hallazgos.tipo === 'EX5 (MT5)', `11b) .mt5: el informe identifica el formato real (obtuvo ${r.hallazgos.tipo})`);
+
+// 11c) .mt5 que en realidad es un .set de Expert
+r = importarDocumento('parametros_bot.mt5', buf('ScoreMin=70\nATRPeriodo=20\nDesconocidoX=3\n'));
+ok(r.ok && r.tipo === 'mt5' && r.doc.score.min === 70 && r.doc.atr.periodo === 20,
+  `11c) .mt5 (.set dentro): mapea score.min=70 y atr.periodo=20 (obtuvo ${r.doc.score.min}/${r.doc.atr.periodo})`);
+
+// 11d) .mt5 binario que no es EX5/EX4 -> rechazo claro
+r = importarDocumento('basura.mt5', Buffer.from([0x4d, 0x5a, 0x90, 0x00, 1, 2, 3, 4, 5, 6, 7, 8]));
+ok(!r.ok && /sin magia EX5\/EX4/.test(r.resumen), `11d) .mt5 binario no-MT5: rechazo claro (obtuvo "${r.resumen.slice(0, 40)}...")`);
+
+// 11e) .mt5 que es una plantilla .tpl
+r = importarDocumento('plantilla.mt5', buf(tplTxt));
+ok(r.ok && r.tipo === 'mt5' && r.doc.sesgo.periodo === 30, `11e) .mt5 (tpl dentro): mapea EMA(30) (obtuvo ${r.doc.sesgo.periodo})`);
+
 console.log(fallos === 0 ? '\n🎉 TODOS LOS TESTS DEL IMPORTADOR PASARON' : `\n💥 ${fallos} test(s) fallaron`);
 process.exit(fallos === 0 ? 0 : 1);

@@ -79,6 +79,11 @@
     .senal .meta { flex: 1; font-size: 13px; color: var(--apagado); }
     .estado-simbolos { font-size: 13px; color: var(--apagado); line-height: 1.7; }
     .ok { color: var(--verde); }
+    .mal { color: var(--rojo); }
+    .radio-fila { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed var(--borde); padding: 3px 0; font-size: 13px; }
+    .radio-fila:last-child { border-bottom: 0; }
+    .radio-fila .k { color: var(--apagado); white-space: nowrap; }
+    .radio-fila .v { text-align: right; word-break: break-all; }
     details summary { cursor: pointer; color: var(--azul); font-size: 13px; margin-bottom: 6px; }
     .pie { text-align: center; color: var(--apagado); font-size: 11px; padding: 6px 0 20px; }
     #instalar { display: none; }
@@ -120,6 +125,16 @@
         <button id="b-instalar" disabled>Instalar app</button>
       </div>
       <div class="pie" id="nota-origen">Arranca el motor y deja esta app abierta con la pantalla encendida.</div>
+    </section>
+
+    <!-- Radiografía de bots MT5 -->
+    <section>
+      <h2>Radiografía de bots MT5</h2>
+      <div class="pie" style="text-align:left;margin-bottom:8px">Sube el documento de un bot adversario (.mt5, .ex5, .ex4, .set, .tpl, .mq5, .mq4, .mqh, .json, .md, .txt). Se analiza AQUÍ en tu teléfono: no se envía a ningún servidor.</div>
+      <input type="file" id="r-archivo" accept=".mt5,.ex5,.ex4,.set,.tpl,.mq5,.mq4,.mqh,.json,.md,.txt">
+      <div class="btns"><button id="b-radiografia" class="primario">Radiografiar documento</button></div>
+      <div id="r-estado" class="estado-simbolos" style="margin-top:8px"></div>
+      <div id="r-informe" class="estado-simbolos"></div>
     </section>
 
     <!-- Log -->

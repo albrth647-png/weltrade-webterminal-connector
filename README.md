@@ -42,6 +42,7 @@ terceros**. Solo Node.js (~15 KB de código), pensado para correr en un
 | [`backtest_raptor/`](backtest_raptor/) | Backtest con datos reales (1 año × FX Vol 20/60/99): 3.341 señales, WR 45,7%, PF 1,27 — `reporte.md` + `senales.csv` señal a señal |
 | [`scripts_re/`](scripts_re/) | Los 15 scripts con los que se hizo la ingeniería inversa: captura del bundle con REA, decodificación del protocolo, bisect de la clave, verificación del conector, script de Ghidra |
 | [`evidencia/`](evidencia/) | Capturas de la sesión real (login demo OK), logs binarios del protocolo, bundle capturado, sesiones decodificadas, JS del cliente oficial (zip) |
+| [`pwa/`](pwa/) | PWA de señales (motor en el navegador + IndexedDB + Telegram) con **botón de radiografía de bots MT5**: analiza `.mt5/.ex5/.ex4/.set/.tpl/.mq5/.mq4/.mqh` EN el teléfono, sin enviar el archivo a ningún servidor (`radio.js`) |
 
 ## 🧠 Estrategia como documento (CERO estrategia en el código)
 
@@ -66,6 +67,7 @@ Al arrancar `node app.js`, abre `http://localhost:3000/` (o la URL de Render):
    | `.tpl` | Plantilla de gráfico: indicadores (EMA→sesgo, ATR→periodo, Fractals→zonas) |
    | `.mq5` / `.mq4` / `.mqh` | Código fuente: inputs, llamadas a indicadores, órdenes C/V (anatomía) |
    | `.ex5` / `.ex4` | **Radiografía**: autor, link, versión, build, entropía — el cuerpo va cifrado por MetaQuotes |
+   | `.mt5` | Cualquier documento de bot de MT5: se identifica por **contenido** (magia EX5/EX4 → radiografía; texto → .set/.tpl/.mq5/json embebido) |
 
 2. **Validar** — el validador es ESTRICTO: un documento incompleto se rechaza
    con la lista exacta de lo que falta.

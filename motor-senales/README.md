@@ -76,6 +76,11 @@ El panel web (`http://localhost:3000/`) tiene:
 | `.tpl` | Plantilla de gráfico de MT5: extrae indicadores (MA/EMA, ATR, Fractals…) |
 | `.mq5` / `.mq4` / `.mqh` | Código fuente: extrae `inputs`, llamadas a indicadores (iMA, iATR, iFractals, iStochastic…), SL/TP → **anatomía** del bot, nunca su clon |
 | `.ex5` / `.ex4` | Bot compilado: **radiografía de cabecera** (autor, link, versión, build, fecha, entropía). El cuerpo va cifrado por MetaQuotes: sin reglas legibles sin ingeniería inversa del terminal (fase 2) |
+| `.mt5` | Cualquier documento de bot de MT5: se identifica por **contenido** (magia EX5/EX4 → radiografía; texto con json/.tpl/.set dentro → su importador) |
+
+La PWA (`pwa/`) tiene su propio **botón de radiografía** (`radio.js`) que analiza
+esta misma familia de archivos EN el navegador del teléfono, sin enviar el
+archivo a ningún servidor.
 
 - Tras importar: **borrador editable** → **Validar** → **Activar**. Al activar,
   el motor se reconstruye en caliente y re-siembra el historial sin reiniciar.

@@ -7,8 +7,8 @@
       (la conexión real es WSS en vivo: los ticks NO se cachean)
    2) mostrar notificaciones mientras la app está abierta
    ============================================================ */
-const CACHE = 'wt-pwa-v2';
-const SHELL = ['./', './index.html', './app.js', './proto.js', './motor.js', './velas_db.js', './manifest.json', './icono.svg', './icono-192.png'];
+const CACHE = 'wt-pwa-v3';
+const SHELL = ['./', './index.html', './app.js', './proto.js', './motor.js', './velas_db.js', './radio.js', './manifest.json', './icono.svg', './icono-192.png'];
 
 self.addEventListener('install', (ev) => {
   ev.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

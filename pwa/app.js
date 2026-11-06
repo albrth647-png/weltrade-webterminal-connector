@@ -10,6 +10,7 @@
 import { ClienteMT5Web } from './proto.js';
 import { Estrategia, enviarTelegram, formatearSenal, MAX_VELAS_TF } from './motor.js';
 import { abrirVelasDB, guardarVelas, cargarVelas } from './velas_db.js';
+import { radiografiar } from './radio.js';
 
 /* ---------- referencias UI ---------- */
 const $ = (id) => document.getElementById(id);
@@ -358,6 +359,56 @@ ui.bTestNotif.addEventListener('click', async () => {
     log('INFO', 'permiso de notificaciones concedido');
   } else {
     log('AVISO', 'permiso de notificaciones denegado');
+  }
+});
+
+/* ---------- radiografía de bots MT5 (100 % local, sin servidor) ---------- */
+const escRadio = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const filaRadio = (k, v) => `<div class="radio-fila"><span class="k">${escRadio(k)}</span><span class="v">${escRadio(v)}</span></div>`;
+
+function pintarRadio(inf) {
+  const est = inf.ok ? `<span class="ok">✓ ${escRadio(inf.resumen)}</span>` : `<span class="mal">✗ ${escRadio(inf.resumen)}</span>`;
+  document.getElementById('r-estado').innerHTML = est;
+  const h = inf.hallazgos || {};
+  const filas = [];
+  if (h.tipo) filas.push(filaRadio('Formato', h.tipo));
+  if (h.versionFormato !== undefined) filas.push(filaRadio('Versión de formato', h.versionFormato));
+  if (h.autor) filas.push(filaRadio('Autor', h.autor));
+  if (h.link) filas.push(filaRadio('Link', h.link));
+  if (h.versionPrograma) filas.push(filaRadio('Versión del programa', h.versionPrograma));
+  if (h.compilado) filas.push(filaRadio('Compilado', h.compilado));
+  if (h.tamanoBytes) filas.push(filaRadio('Tamaño', h.tamanoBytes.toLocaleString('es') + ' bytes'));
+  if (h.fronteraCifrada >= 0) filas.push(filaRadio('Zona clara', `0x0 – 0x${h.fronteraCifrada.toString(16)}`));
+  if (h.entropia !== undefined) filas.push(filaRadio('Entropía del cuerpo', h.entropia + ' bits/byte'));
+  if (h.cripto) filas.push(filaRadio('Criptoanálisis', `bloques16 ${h.cripto.bloques16} · χ² ${h.cripto.chi2} — ${h.cripto.lectura}`));
+  if (h.camposCabecera) filas.push(filaRadio('Cabecera (candidatos)', JSON.stringify(h.camposCabecera)));
+  if (h.documentoEstrategia) filas.push(filaRadio('Documento de estrategia', h.documentoEstrategia.nombre));
+  if (h.simbolo) filas.push(filaRadio('Símbolo de la plantilla', h.simbolo));
+  if (h.entradas && h.entradas.length) filas.push(filaRadio('Inputs', h.entradas.join(' · ')));
+  if (h.indicadores && h.indicadores.length) filas.push(filaRadio('Indicadores', h.indicadores.join(' · ')));
+  if (h.ordenes) filas.push(filaRadio('Órdenes C/V', `${h.ordenes.compra} compra · ${h.ordenes.venta} venta`));
+  if (h.pares && h.pares.length) filas.push(filaRadio('Pares clave=valor', h.pares.slice(0, 12).join(' · ') + (h.pares.length > 12 ? ` (+${h.pares.length - 12})` : '')));
+  if (h.stringsTexto && h.stringsTexto.length) filas.push(filaRadio('Strings legibles', h.stringsTexto.slice(0, 10).join(' · ')));
+  if (h.stringsExtra && h.stringsExtra.length) filas.push(filaRadio('Strings extra', h.stringsExtra.slice(0, 10).join(' · ')));
+  if (h.veredicto) filas.push(filaRadio('Veredicto', h.veredicto));
+  document.getElementById('r-informe').innerHTML = filas.length
+    ? `<div style="margin-top:8px;border:1px solid var(--borde);border-radius:8px;padding:8px 10px">${filas.join('')}</div>`
+    : '';
+}
+
+document.getElementById('b-radiografia').addEventListener('click', async () => {
+  const f = document.getElementById('r-archivo').files[0];
+  const est = document.getElementById('r-estado');
+  const infDiv = document.getElementById('r-informe');
+  if (!f) { est.innerHTML = '<span class="mal">elige un archivo primero</span>'; return; }
+  est.textContent = 'radiografiando en el teléfono…';
+  infDiv.innerHTML = '';
+  try {
+    const inf = radiografiar(f.name, await f.arrayBuffer());
+    pintarRadio(inf);
+    log(inf.ok ? 'INFO' : 'AVISO', `radiografía ${f.name}: ${inf.resumen}`);
+  } catch (e) {
+    est.innerHTML = `<span class="mal">error al radiografiar: ${escRadio(e.message)}</span>`;
   }
 });
 

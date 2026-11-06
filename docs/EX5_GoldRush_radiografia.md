@@ -129,4 +129,35 @@ Detalle y pasos: `scripts_re/kit_dump_windows/LEEME.md`.
 
 ---
 
-*Herramientas: `scripts_re/radiografia_ex5.js` (Node, sin dependencias) y `scripts_re/ghidra/RadiografiaMT5Setup.java` (Ghidra headless). Informe completo: `node scripts_re/radiografia_ex5.js <archivo.ex5> salida.md`.*
+## 9. Re-verificación con importador .mt5 + PWA (2026-11-06, sesión 3)
+
+### 9.1 El importador y la PWA ahora aceptan la familia completa MT5
+
+- `motor-senales/importador.js`: extensión **`.mt5`** explícita — se identifica por CONTENIDO: magia `EX5`/`EX4` → radiografía; texto con json embebido / plantilla `.tpl` / pares `.set` → el importador correspondiente. Sniffing genérico ampliado a magia `EX4`. Tests: **30/30** (`test_importador.js`, incluidos 5 casos `.mt5` y el EX5 real).
+- **PWA** (`pwa/radio.js` + sección "Radiografía de bots MT5" en `pwa/index.html`): mismo análisis 100 % en el navegador (sin enviar el archivo a ningún servidor). Verificado en vivo con Chromium headless cargando el EX5 real: autor, link, v1.00, frontera 0x2e8, entropía 7,99, χ²=269, bloques16 0/10168 — idéntico al informe forense, más **fecha probable de compilación 2026-09-04** (campo @0xA0).
+- Service worker: caché `wt-pwa-v3` (bump por cambio de shell, cierre parcial del hallazgo M2 de la auditoría).
+
+### 9.2 Re-descarga y análisis Ghidra de `mt5setup.exe` (evidencia fresca)
+
+- Re-descargado del CDN oficial (`download.mql5.com/.../mt5setup.exe`): 23.784.536 B, PE32+ x64, SHA-256 `a879492dd9d7b168d0538edd1c0dc5604ca43dc0951825b3501818e8b18f4c93`.
+- Ghidra 12.1.4 headless (nuevo script `scripts_re/ghidra/RadiografiaMT5Setup2.java`, modo bajo memoria SIN auto-análisis completo):
+
+| Hallazgo | Resultado |
+|---|---|
+| Imagen base | `0x140000000` |
+| Punto de entrada | `0x140a138bc` (único — coincide con la sesión anterior) |
+| Secciones sin bytes en disco | `.text` (1,5 MB), `.rdata`, `.data`, `.pdata`, `.fptable`, `.cod0` (2,2 MB) — todo virtualizado |
+| Sección ejecutable real | `.cod2` 5,1 MB (initialized+exec) + `.cod1` y `.rsrc` |
+| Constantes cripto (S-box AES, IV SHA-256) | **no encontradas en toda la imagen** |
+| Strings `EX5`, `.mq5`, `terminal64` | **no encontrados** |
+| Tabla de APIs en claro dentro de `.cod2` | `InitCommonControlsEx`, `GetSystemMetrics`, `SHLWAPI.dll`, `TerminateProcess`, `GlobalMemoryStatusEx`, `DeviceIoControl`, `CRYPT32.dll`, `CreateWindowExW`, `ADVAPI32.dll`, `FindResourceExW`… → stub que resuelve imports en runtime (patrón VMProtect) |
+
+- Nota de entorno: el auto-análisis COMPLETO (el que produjo 6.024 funciones en la sesión anterior) no cabe en esta sandbox de 4 GB RAM — JVM nativa eliminada por OOM dos veces (con `-Xmx1100m` incluido). El script v2 obtiene los mismos hallazgos clave por escaneo de memoria sin análisis de funciones.
+
+### 9.3 Ejecución de MT5 en el sandbox: bloqueado de nuevo (verificado 2ª vez)
+
+- Wine 11.21-staging (Kron4ek, build del 2026-10-31): `wine --version` OK.
+- `wineboot -i` → **exit 159 = SIGSYS "Bad system call"**, idéntico a la sesión anterior: el seccomp del sandbox bloquea syscalls que Wine necesita. No es evitable desde dentro; instalar/correr MT5 aquí es imposible.
+- Consecuencia para la ruta A (volcado de memoria): requiere Windows real. **El usuario no tiene PC** → la vía práctica es un **VPS Windows barato** (o VPS gratuito de prueba): instalar MT5 + `GoldRush.ex5` en demo, ejecutar `scripts_re/kit_dump_windows/capturar_mt5.bat` (produce `terminal64.exe` + volcado de memoria con el bot cargado) y subir ambos aquí para el nivel 2.
+
+---

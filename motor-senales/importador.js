@@ -16,6 +16,10 @@
                         cuerpo va cifrado; no contiene reglas
                         legibles sin ingeniería inversa del
                         terminal (fase 2)
+     .mt5            -> "documento de bot MT5" genérico: se
+                        identifica por CONTENIDO (magia EX5/EX4,
+                        texto .set/.tpl/.mq5, json embebido) y se
+                        despacha al importador que corresponda
 
    NUNCA inventa estrategia: los borradores parten de la
    plantilla neutra (estrategias/raptor_default.json) y solo
@@ -339,8 +343,28 @@ function importarDocumento(nombreArchivo, buf) {
     if (ext === 'tpl') return importarTpl(buf.toString('utf8'), nombre);
     if (ext === 'mq5' || ext === 'mq4' || ext === 'mqh') return importarMq(buf.toString('utf8'), nombre);
     if (ext === 'ex5' || ext === 'ex4') return importarEx5(buf, nombre);
+    // .mt5: extensión genérica de "documento de bot de MT5" — manda el CONTENIDO
+    if (ext === 'mt5') {
+      const magia = buf.subarray(0, 3).toString('latin1');
+      if (magia === 'EX5' || magia === 'EX4') {
+        const inf = importarEx5(buf, nombre);
+        inf.tipo = 'mt5';
+        return inf;
+      }
+      if (esTexto(buf)) {
+        const texto = buf.toString('utf8');
+        const doc = buscarBloqueJson(texto);
+        if (doc) return cerrarBorrador(doc, { tipo: 'mt5', ok: true, resumen: 'documento de estrategia embebido en el .mt5 (texto)', hallazgos: {}, mapeados: ['json embebido'], sinMapa: [] });
+        if (/<indicator>/.test(texto)) { const inf = importarTpl(texto, nombre); inf.tipo = 'mt5'; return inf; }
+        const infSet = importarSet(texto, nombre);   // pares clave=valor: el parser decide si mapea algo
+        infSet.tipo = 'mt5';
+        return infSet;
+      }
+      return { tipo: 'mt5', ok: false, resumen: 'archivo .mt5 binario sin magia EX5/EX4 reconocible — no es un programa MT5 válido', hallazgos: {}, mapeados: [], sinMapa: [], erroresValidacion: [] };
+    }
     // sin extensión conocida: sniffing
-    if (buf.subarray(0, 3).toString('latin1') === 'EX5') return importarEx5(buf, nombre);
+    const magiaSniff = buf.subarray(0, 3).toString('latin1');
+    if (magiaSniff === 'EX5' || magiaSniff === 'EX4') return importarEx5(buf, nombre);
     if (esTexto(buf)) {
       const texto = buf.toString('utf8');
       const doc = buscarBloqueJson(texto);
@@ -349,7 +373,7 @@ function importarDocumento(nombreArchivo, buf) {
       if (/<indicator>/.test(texto)) return importarTpl(texto, nombre);
       return { tipo: 'texto', ok: false, resumen: 'texto reconocido pero sin documento de estrategia dentro', hallazgos: {}, mapeados: [], sinMapa: [], erroresValidacion: [] };
     }
-    return { tipo: ext || '?', ok: false, resumen: `formato "${ext || 'desconocido'}" no soportado — usa .json/.md/.txt/.set/.tpl/.mq5/.mq4/.mqh/.ex5/.ex4`, hallazgos: {}, mapeados: [], sinMapa: [], erroresValidacion: [] };
+    return { tipo: ext || '?', ok: false, resumen: `formato "${ext || 'desconocido'}" no soportado — usa .json/.md/.txt/.set/.tpl/.mq5/.mq4/.mqh/.ex5/.ex4/.mt5`, hallazgos: {}, mapeados: [], sinMapa: [], erroresValidacion: [] };
   } catch (e) {
     return { tipo: ext || '?', ok: false, resumen: 'error al procesar: ' + e.message, hallazgos: {}, mapeados: [], sinMapa: [], erroresValidacion: [] };
   }
