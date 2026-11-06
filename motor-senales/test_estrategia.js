@@ -15,7 +15,10 @@
    Ejecutar:  node test_estrategia.js
    Sale con código 0 si todo pasa, 1 si algo falla.
    ============================================================ */
+const fs = require('fs');
+const path = require('path');
 const { Estrategia } = require('./estrategia');
+const { validarDoc, docACfg } = require('./doc_estrategia');
 
 const t0 = Date.UTC(2026, 0, 1, 0, 0, 0);
 const M15 = 900e3, M5 = 300e3, H1 = 3600e3;
@@ -26,7 +29,10 @@ const ok = (cond, nombre) => {
 };
 
 // ---------- escenario ----------
-const E = new Estrategia({ dedupMin: 0, scoreMin: 60 });
+// La estrategia viene del DOCUMENTO (el código no tiene ninguna):
+const vDoc = validarDoc(JSON.parse(fs.readFileSync(path.join(__dirname, 'estrategias', 'raptor_default.json'), 'utf8')));
+if (!vDoc.ok) { console.error('❌ el documento base es inválido:', vDoc.errores); process.exit(1); }
+const E = new Estrategia({ ...docACfg(vDoc.doc), dedupMin: 0 });
 const S = 'FX Vol 20';
 const eventos = { zonaNueva: [], toque: [], senal: [], tn: 0 };
 E.on('zona', (ev) => { if (ev.evento === 'nueva') eventos.zonaNueva.push(ev.zona); });

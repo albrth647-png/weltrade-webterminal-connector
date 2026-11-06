@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor de señales — estrategia como documento</title>
+<style>
+  :root { --fondo:#0f1419; --tarjeta:#1a2027; --borde:#2b3440; --texto:#e6e9ed; --apagado:#8b96a3; --acento:#3aa981; --error:#e05252; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--fondo); color:var(--texto); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:20px; margin:8px 0 2px; }
+  .sub { color:var(--apagado); font-size:13px; margin-bottom:18px; }
+  .tarjeta { background:var(--tarjeta); border:1px solid var(--borde); border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+  .tarjeta h2 { font-size:14px; margin:0 0 10px; text-transform:uppercase; letter-spacing:.06em; color:var(--apagado); }
+  .fila { display:flex; justify-content:space-between; gap:12px; padding:3px 0; border-bottom:1px dashed var(--borde); }
+  .fila:last-child { border-bottom:0; }
+  .k { color:var(--apagado); } .v { text-align:right; word-break:break-all; }
+  button { background:var(--acento); border:0; color:#08110d; font-weight:600; padding:9px 14px; border-radius:8px; cursor:pointer; font-size:14px; }
+  button.sec { background:#2b3440; color:var(--texto); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  input[type=file] { color:var(--apagado); font-size:13px; max-width:100%; }
+  textarea { width:100%; min-height:240px; background:#0c1014; color:var(--texto); border:1px solid var(--borde); border-radius:8px; padding:10px; font:12.5px/1.45 ui-monospace, monospace; white-space:pre; }
+  .info { color:var(--apagado); font-size:13px; }
+  .mal { color:var(--error); }
+  .okm { color:var(--acento); }
+  ul { margin:6px 0; padding-left:18px; } li { margin:2px 0; font-size:13.5px; }
+  .acciones { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .estado { margin-top:8px; font-size:13.5px; min-height:18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Estrategia como documento</h1>
+  <div class="sub">La estrategia vive en documentos — el código no tiene ninguna. Sube un documento del bot (o de MT5), revisa el borrador y actívalo.</div>
+
+  <div class="tarjeta" id="tarjeta-activa">
+    <h2>Estrategia activa</h2>
+    <div id="activa">cargando…</div>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Importar documento</h2>
+    <input type="file" id="archivo" accept=".json,.md,.txt,.set,.tpl,.mq5,.mq4,.mqh,.ex5,.ex4">
+    <div class="acciones"><button id="btn-importar">Importar documento</button></div>
+    <div class="estado" id="estado-import"></div>
+    <div id="informe"></div>
+
+    <div id="zona-borrador" style="display:none">
+      <h2 style="margin-top:14px">Borrador (editable)</h2>
+      <textarea id="borrador" spellcheck="false"></textarea>
+      <div class="acciones">
+        <button id="btn-validar" class="sec">Validar</button>
+        <button id="btn-activar">Activar</button>
+      </div>
+      <div class="estado" id="estado-borrador"></div>
+    </div>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Mantenimiento</h2>
+    <div class="acciones">
+      <button id="btn-descargar" class="sec">Descargar activa (.json)</button>
+      <button id="btn-restaurar" class="sec">Restaurar integrada</button>
+    </div>
+    <p class="info" style="margin-bottom:0">Formatos: .json/.md/.txt (documento) · .set/.tpl (parámetros y gráfico de MT5) · .mq5/.mq4/.mqh (fuente: extrae anatomía) · .ex5/.ex4 (radiografía — el cuerpo va cifrado por MetaQuotes).</p>
+  </div>
+</main>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+
+async function refrescar() {
+  const r = await fetch('/estrategia');
+  const { doc, fuente } = await r.json();
+  $('activa').innerHTML = `
+    <div class="fila"><span class="k">Nombre</span><span class="v"><b>${esc(doc.meta.nombre)}</b> (v${doc.meta.version})</span></div>
+    <div class="fila"><span class="k">Fuente</span><span class="v">${esc(fuente)}</span></div>
+    <div class="fila"><span class="k">Sesgo</span><span class="v">${esc(doc.sesgo.activo ? doc.sesgo.indicador.toUpperCase() + '(' + doc.sesgo.periodo + ') en ' + doc.sesgo.tf : 'sin sesgo')}</span></div>
+    <div class="fila"><span class="k">Zonas</span><span class="v">${esc(doc.zonas.indicador + ' · ' + doc.zonas.tf + ' · alas ' + doc.zonas.alas)}</span></div>
+    <div class="fila"><span class="k">Toques</span><span class="v">${esc(doc.toques.tf + ' · banda ' + doc.toques.bandaAtr + '×ATR')}</span></div>
+    <div class="fila"><span class="k">Score mínimo</span><span class="v">${doc.score.min}</span></div>
+    <div class="fila"><span class="k">Riesgo</span><span class="v">SL ${doc.riesgo.slAtr}×ATR · TP ${doc.riesgo.tpAtr}×ATR</span></div>`;
+}
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+$('btn-importar').onclick = async () => {
+  const f = $('archivo').files[0];
+  if (!f) { $('estado-import').innerHTML = '<span class="mal">elige un archivo primero</span>'; return; }
+  $('estado-import').textContent = 'procesando…';
+  const buf = await f.arrayBuffer();
+  const r = await fetch('/importar?nombre=' + encodeURIComponent(f.name), { method: 'POST', body: buf });
+  const inf = await r.json();
+  pintarInforme(inf);
+};
+
+function pintarInforme(inf) {
+  const est = inf.ok ? '<span class="okm">✓ ' + esc(inf.resumen) + '</span>' : '<span class="mal">✗ ' + esc(inf.resumen) + '</span>';
+  $('estado-import').innerHTML = est;
+  let h = '';
+  if (inf.mapeados && inf.mapeados.length) h += `<p class="info" style="margin:8px 0 0">Mapeados:</p><ul>${inf.mapeados.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>`;
+  if (inf.sinMapa && inf.sinMapa.length) h += `<p class="info" style="margin:8px 0 0">Sin equivalente (revísalos tú):</p><ul>${inf.sinMapa.slice(0, 20).map((m) => `<li>${esc(m)}</li>`).join('')}</ul>`;
+  if (inf.erroresValidacion && inf.erroresValidacion.length) h += `<p class="info mal" style="margin:8px 0 0">Validación del borrador:</p><ul class="mal">${inf.erroresValidacion.slice(0, 20).map((m) => `<li>${esc(m)}</li>`).join('')}</ul>`;
+  $('informe').innerHTML = h;
+  if (inf.doc) {
+    $('zona-borrador').style.display = '';
+    $('borrador').value = JSON.stringify(inf.doc, null, 2);
+    $('estado-borrador').innerHTML = '<span class="info">revisa y edita el borrador; luego Valida o Activa</span>';
+  } else {
+    $('zona-borrador').style.display = 'none';
+  }
+}
+
+$('btn-validar').onclick = async () => {
+  try {
+    const doc = JSON.parse($('borrador').value);
+    const r = await (await fetch('/estrategia/validar', { method: 'POST', body: JSON.stringify(doc) })).json();
+    $('estado-borrador').innerHTML = r.ok ? '<span class="okm">✓ documento válido — listo para activar</span>' : '<span class="mal">✗ ' + r.errores.map(esc).join(' · ') + '</span>';
+  } catch (e) { $('estado-borrador').innerHTML = '<span class="mal">JSON inválido: ' + esc(e.message) + '</span>'; }
+};
+
+$('btn-activar').onclick = async () => {
+  try {
+    const doc = JSON.parse($('borrador').value);
+    const r = await (await fetch('/estrategia/activar', { method: 'POST', body: JSON.stringify(doc) })).json();
+    if (r.ok) {
+      $('estado-borrador').innerHTML = '<span class="okm">✓ estrategia activada — el motor está re-sembrando historial</span>';
+      refrescar();
+    } else {
+      $('estado-borrador').innerHTML = '<span class="mal">✗ ' + r.errores.map(esc).join(' · ') + '</span>';
+    }
+  } catch (e) { $('estado-borrador').innerHTML = '<span class="mal">JSON inválido: ' + esc(e.message) + '</span>'; }
+};
+
+$('btn-descargar').onclick = async () => {
+  const { doc } = await (await fetch('/estrategia')).json();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
+  a.download = (doc.meta.nombre || 'estrategia').replace(/\W+/g, '_') + '.json';
+  a.click(); URL.revokeObjectURL(a.href);
+};
+
+$('btn-restaurar').onclick = async () => {
+  await fetch('/estrategia/restaurar', { method: 'POST' });
+  refrescar();
+};
+
+refrescar();
+</script>
+</body>
+</html>

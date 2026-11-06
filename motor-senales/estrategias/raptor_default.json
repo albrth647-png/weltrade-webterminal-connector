@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "nombre": "Raptor-propio",
+    "version": 1,
+    "descripcion": "Zonas fractales M15 + toques EARLY/MAIN/LATE + TN + sesgo EMA(30) H1 + gatillo M5 direccional. Documento de referencia — idéntica al baseline del backtest de 1 año (3.341 señales, PF 1.27)."
+  },
+  "simbolos": [],
+  "zonas": { "activo": true, "tf": "M15", "indicador": "fractales", "alas": 2, "tolPivoteAtr": 0.30, "tolPivoteRel": 0.0008, "vigenciaHoras": 48 },
+  "toques": { "tf": "M5", "bandaAtr": 0.15, "excursionAtr": 1.20, "fases": { "EARLY": 25, "MAIN": 40, "LATE": 15 } },
+  "tn": { "activo": true, "atr": 0.50 },
+  "sesgo": { "activo": true, "tf": "H1", "indicador": "ema", "periodo": 30, "velasPendiente": 3 },
+  "gatillo": { "direccional": true },
+  "score": { "min": 60, "pesoFuerzaMax": 25, "pesoFuerzaPorPivote": 5, "pesoSesgo": 25, "pesoGatillo": 10 },
+  "dedup": { "minutos": 45 },
+  "riesgo": { "slAtr": 1.0, "tpAtr": 2.0 },
+  "atr": { "periodo": 14 },
+  "maxVelas": { "M1": 1200, "M5": 600, "M15": 400, "M30": 300, "H1": 300, "H4": 200, "D1": 100 }
+}
