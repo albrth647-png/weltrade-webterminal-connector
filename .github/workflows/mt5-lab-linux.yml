@@ -44,7 +44,7 @@ permissions:
 
 jobs:
   lab:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
       - name: Checkout
@@ -52,14 +52,19 @@ jobs:
 
       - name: Sistema (Wine + Xvfb)
         run: |
+          set -e
           sudo dpkg --add-architecture i386
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb winbind unzip xdotool > /dev/null
+          sudo mkdir -pm755 /usr/share/keyrings
+          sudo wget -qO /usr/share/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
           CODENAME="$(. /etc/os-release && echo $VERSION_CODENAME)"
           sudo wget -qO "/etc/apt/sources.list.d/winehq-${CODENAME}.sources" \
-            "https://dl.winehq.org/wine-builds/ubuntu/dists/${CODENAME}/winehq-${CODENAME}.sources"
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq winehq-stable > /dev/null
+            "https://dl.winehq.org/wine-builds/ubuntu/dists/${CODENAME}/winehq-${CODENAME}.sources" \
+            || sudo rm -f "/etc/apt/sources.list.d/winehq-${CODENAME}.sources"
+          (sudo apt-get update -qq && sudo apt-get install -y -qq --install-recommends winehq-stable > /dev/null) \
+            || (sudo rm -f /etc/apt/sources.list.d/winehq-*.sources && sudo apt-get update -qq \
+                && sudo apt-get install -y -qq wine wine64 wine32 > /dev/null)
           wine --version
 
       - name: Descargar bot .ex5 (release bot-assets)
