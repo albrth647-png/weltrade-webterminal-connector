@@ -200,6 +200,11 @@ function importarMq(texto, nombre) {
 }
 
 /* ---------- .ex5/.ex4 (bot compilado) — radiografía de cabecera ---------- */
+/* Hallazgos nivel 1 (ver docs/EX5_GoldRush_radiografia.md):
+   - zona clara = cabecera (magia, hashes, 3 slots UTF-16: autor/link/versión)
+   - cuerpo = bytecode cifrado por MetaQuotes (clave por archivo, vive en el
+     terminal): entropía ~8,0, sin bloques repetidos, sin zlib
+   - frontera exacta: último slot de texto + padding de ceros -> primer byte opaco */
 function importarEx5(buf, nombre) {
   const informe = { tipo: extension(nombre), ok: true, resumen: '', hallazgos: {}, mapeados: [], sinMapa: [] };
   const magia = buf.subarray(0, 3).toString('latin1');
@@ -222,8 +227,10 @@ function importarEx5(buf, nombre) {
 
   if (esEx5) {
     informe.hallazgos.versionFormato = buf[3];
-    informe.hallazgos.marcador1 = u32(8);
-    informe.hallazgos.buildCompilador = u32(0x60) || undefined;
+    informe.hallazgos.camposCabecera = {
+      c0x08: u32(0x08), c0x0E: u16(0x0E), c0x10: u32(0x10),
+      c0x40: u32(0x40), c0x58: u32(0x58), c0x60: u32(0x60), c0x64: u32(0x64), c0x6C: u32(0x6C),
+    };
     const ts = u32(0xA0);
     if (ts > 946684800 && ts < 2051222400) {                     // 2000..2035 razonable
       informe.hallazgos.compilado = new Date(ts * 1000).toISOString().slice(0, 10) + ' (interpretación probable)';
@@ -248,29 +255,62 @@ function importarEx5(buf, nombre) {
     if (u16txt.length) informe.hallazgos.stringsUtf16 = u16txt.slice(0, 40);
   }
 
-  // entropía media del cuerpo (¿cifrado?)
-  let e = 0; const bloques = 8; const paso = Math.max(1, Math.floor(buf.length / bloques));
-  for (let k = 0; k < bloques; k++) {
-    const seg = buf.subarray(k * paso, Math.min(buf.length, (k + 1) * paso));
+  /* frontera exacta: primera ventana de 256 B con entropía > 7 (saltando padding de ceros) */
+  const entropiaSeg = (seg) => {
+    if (!seg.length) return 0;
     const c = new Array(256).fill(0);
     for (const x of seg) c[x]++;
-    e += -c.reduce((a, v) => (v ? a + (v / seg.length) * Math.log2(v / seg.length) : a), 0);
+    return -c.reduce((a, v) => (v ? a + (v / seg.length) * Math.log2(v / seg.length) : a), 0);
+  };
+  let frontera = -1;
+  for (let o = 0; o + 256 <= buf.length; o += 16) {
+    if (entropiaSeg(buf.subarray(o, o + 256)) > 7.0) {
+      frontera = o;
+      while (frontera < buf.length && buf[frontera] === 0) frontera++;
+      break;
+    }
   }
-  e /= bloques;
+  if (frontera >= 0) informe.hallazgos.fronteraCifrada = frontera;   // byte donde empieza el cuerpo opaco
+
+  /* criptoanálisis del cuerpo */
+  const cuerpo = buf.subarray(frontera >= 0 ? frontera : 0);
+  let e = 0; const bloques = 8; const paso = Math.max(1, Math.floor(cuerpo.length / bloques));
+  for (let k = 0; k < bloques; k++) e += entropiaSeg(cuerpo.subarray(k * paso, Math.min(cuerpo.length, (k + 1) * paso)));
+  e /= Math.max(1, bloques);
   informe.hallazgos.entropia = +e.toFixed(2);
   informe.hallazgos.tamanoBytes = buf.length;
+  if (cuerpo.length >= 4096) {
+    // ¿bloques de 16 B repetidos? (ECB con tabla estática -> los habría)
+    const vistos = new Set();
+    let rep = 0, total = 0;
+    for (let o = 0; o + 16 <= cuerpo.length; o += 16) {
+      const k = cuerpo.subarray(o, o + 16).toString('latin1');
+      if (vistos.has(k)) rep++;
+      vistos.add(k);
+      total++;
+    }
+    // chi-cuadrado sobre los primeros 64 KB
+    const c = new Array(256).fill(0);
+    for (const x of cuerpo.subarray(0, 65536)) c[x]++;
+    const esp = Math.min(65536, cuerpo.length) / 256;
+    const chi2 = Math.round(c.reduce((a, v) => a + (v - esp) ** 2 / esp, 0));
+    informe.hallazgos.cripto = {
+      bloques16: `${rep}/${total} repetidos`, chi2,
+      lectura: rep === 0 && chi2 < 1000 ? 'indistinguible del azar: cifrado fuerte (CBC/CTR o propio), no compresión sola' : 'hay estructura detectable: cabe análisis más profundo',
+    };
+  }
 
   const cifrado = e > 7.5;
   informe.hallazgos.veredicto = cifrado
-    ? 'cuerpo cifrado/comprimido de MetaQuotes: SIN reglas legibles sin ingeniería inversa del terminal (fase 2 con Ghidra + loader propio)'
+    ? 'cuerpo cifrado de MetaQuotes: SIN reglas legibles sin ingeniería inversa (ruta A: volcado de memoria del terminal — ver docs/EX5_GoldRush_radiografia.md)'
     : 'cuerpo legible al menos en parte — cabe análisis más profundo';
   informe.resumen = `Radiografía de ${nombre}: ${informe.hallazgos.tipo}`
     + (informe.hallazgos.autor ? ` · autor: ${informe.hallazgos.autor}` : '')
     + (informe.hallazgos.versionPrograma ? ` · v${informe.hallazgos.versionPrograma}` : '')
-    + (informe.hallazgos.compilado ? ` · compilado ${informe.hallazgos.compilado}` : '')
+    + (frontera >= 0 ? ` · zona clara 0x0-0x${frontera.toString(16)} (${(100 * frontera / buf.length).toFixed(1)}%), resto cifrado` : '')
     + `. ${informe.hallazgos.veredicto}.`
     + ' El borrador adjunto es la PLANTILLA NEUTRA renombrada — NO refleja la lógica del bot.';
-  informe.sinMapa.push('lógica interna del bot: no extraíble en esta fase (binario cifrado)');
+  informe.sinMapa.push('lógica interna del bot: no extraíble en esta fase (binario cifrado — rutas en docs/EX5_GoldRush_radiografia.md)');
   const doc = borradorBase(nombre, `Radiografía de bot compilado ${nombre} — NO es su estrategia`, 'ex5');
   return cerrarBorrador(doc, informe);
 }

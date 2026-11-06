@@ -113,6 +113,11 @@ if (fs.existsSync(ex5Real)) {
   ok(r.hallazgos.link === 'https://hobbiecode.com', `7b) ex5 REAL: link (obtuvo ${r.hallazgos.link})`);
   ok(r.hallazgos.versionPrograma === '1.00', `7c) ex5 REAL: versión del programa (obtuvo ${r.hallazgos.versionPrograma})`);
   ok(r.hallazgos.entropia > 7.5 && r.hallazgos.veredicto.includes('cifrado'), `7d) ex5 REAL: cuerpo cifrado detectado (entropía ${r.hallazgos.entropia})`);
+  ok(r.hallazgos.fronteraCifrada === 0x2E8, `7e) ex5 REAL: frontera exacta claro/cifrado @0x2E8 (obtuvo 0x${(r.hallazgos.fronteraCifrada || 0).toString(16)})`);
+  ok(r.hallazgos.camposCabecera && r.hallazgos.camposCabecera.c0x08 === 1088 && r.hallazgos.camposCabecera.c0x60 === 3937,
+    `7f) ex5 REAL: campos de cabecera mapeados (c0x08=${r.hallazgos.camposCabecera && r.hallazgos.camposCabecera.c0x08}, c0x60=${r.hallazgos.camposCabecera && r.hallazgos.camposCabecera.c0x60})`);
+  ok(r.hallazgos.cripto && /0\/\d+ repetidos/.test(r.hallazgos.cripto.bloques16) && r.hallazgos.cripto.chi2 < 1000,
+    `7g) ex5 REAL: sin repetición ECB + chi2=${r.hallazgos.cripto && r.hallazgos.cripto.chi2} (cifrado fuerte)`);
 } else {
   console.log('⏭  ex5 real no está en upload/ — test 7 saltado');
 }
