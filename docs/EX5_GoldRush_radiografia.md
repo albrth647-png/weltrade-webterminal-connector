@@ -93,4 +93,40 @@ Desempaquetar `mt5setup.exe`/`terminal64.exe` (protector comercial), localizar l
 
 ---
 
-*Herramienta: `scripts_re/radiografia_ex5.js` (Node, sin dependencias) — informe completo con `node scripts/radiografia_ex5.js <archivo.ex5> salida.md`.*
+## 8. Verificación con herramientas (2026-11-06, sesión de trabajo con Ghidra)
+
+Stack reinstalado y verificado en sandbox: **Ghidra 12.1.4 + Temurin JDK 25.0.5 + REA 6.8.0** (`rea doctor --provider ghidra` → healthy). Análisis real ejecutado:
+
+### 8.1 Ghidra headless sobre `mt5setup.exe` (23,7 MB, PE32+ x64)
+
+| Hallazgo | Evidencia |
+|---|---|
+| 6.024 funciones identificadas, imagen base `0x140000000` | script `scripts_re/ghidra/RadiografiaMT5Setup.java` |
+| **Un único punto de entrada** | `0x140a138bc` |
+| Secciones `.text/.rdata/.data/.pdata/.fptable/.cod0` **no inicializadas** (raw size 0) | el código real vive solo en `.cod2` (5,3 MB, entropía máxima) |
+| `.cod2` contiene una tabla de nombres de API en claro | `InitCommonControlsEx`, `DeviceIoControl`, `CRYPT32.dll`, `ADVAPI32.dll`, `CreateWindowExW`, `SetNamedSecurityInfoW`… → stub que resuelve imports en runtime (patrón VMProtect) |
+| **Cero constantes criptográficas en claro** | búsqueda de S-box AES (63 7c 77 7b…), IV SHA-256 (6a09e667…), strings "EX5" y ".mq5" → **no encontradas en toda la imagen** |
+
+Lectura: incluso el instalador oculta su propia cripto; usa `CRYPT32.dll` de
+Windows (verificación de firma y descifrado vía WinAPI). No hay nada más que
+rascar estáticamente sin desempaquetar — y desempaquetar exige EJECUTAR.
+
+### 8.2 Intento de ejecución en sandbox: bloqueado por el entorno
+
+- Wine 11.21-staging (build portable Kron4ek) instalado y operativo (`wine --version` OK).
+- Al inicializar el prefijo, `wineboot` muere con **"Bad system call" (SIGSYS, exit 159)**: el sandbox aplica seccomp y bloquea syscalls que Wine necesita. No es evitable desde dentro del sandbox (política del entorno).
+- Consecuencia: el instalador NO puede ejecutarse aquí, y los componentes del terminal no se sirven sueltos en el CDN (4 rutas probadas + `.dmg` macOS: 404 en GET).
+
+### 8.3 Solución: kit de captura para tu PC (ruta A hecha comando)
+
+`scripts_re/kit_dump_windows/capturar_mt5.bat` — se ejecuta en tu Windows (como
+administrador) con el bot adversario corriendo y produce:
+
+1. `terminal64.exe` + `metaeditor64.exe` → análisis estático COMPLETO aquí (Ghidra no necesita ejecutar Windows para analizar un PE).
+2. `terminal64_memoria.dmp` (volcado completo de memoria del proceso con el bot cargado) → contiene el bytecode del bot **des-cifrado**, listo para extraer.
+
+Detalle y pasos: `scripts_re/kit_dump_windows/LEEME.md`.
+
+---
+
+*Herramientas: `scripts_re/radiografia_ex5.js` (Node, sin dependencias) y `scripts_re/ghidra/RadiografiaMT5Setup.java` (Ghidra headless). Informe completo: `node scripts_re/radiografia_ex5.js <archivo.ex5> salida.md`.*
