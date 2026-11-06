@@ -31,6 +31,33 @@ des-ensamblador de la VM MQL5.
    todo el análisis) y luego el `.dmp` por partes (WinRAR/7zip: "dividir en
    volúmenes de 500 MB").
 
+## Herramienta quirúrgica (Frida) — la versión ligera de la ruta A ⭐
+
+En lugar del volcado bruto de 1-3 GB, `gancho_ex5.js` + `ejecutar_gancho.py`
+hacen lo que el profesional haría: **no desarmar MT5, pescar directamente el
+bytecode en claro mientras el lector de MT5 lo tiene cargado en RAM**.
+
+1. Abre MT5 con el bot adversario corriendo en gráfico **demo** (o en el
+   Probador de Estrategias, que también lo carga en memoria).
+2. En Windows: `pip install frida frida-tools`
+3. `python ejecutar_gancho.py` (como administrador; opcional `--pid N`,
+   `--veces 5 --segundos 30`).
+4. Produce la carpeta `CAPTURA_GANCHO\` con:
+   | Archivo | Peso típico | Qué es |
+   |---|---|---|
+   | `hit_NN_..._NNNNb.bin` | 0.1-16 MB c/u | Copia de la memoria alrededor de cada firma `EX5` encontrada |
+   | `hit_NN_informe.txt` | 1-20 KB | Entropía, frontera, **strings MQL5 (UTF-16 con prefijo 4B)** y veredicto |
+
+   El informe etiqueta cada hallazgo:
+   - **"probable DESCIFRADO: bytecode estructurado (¡el objetivo!)"** — entropía
+     del cuerpo < 7.5 → es el bot en claro; ese archivo es el que importa.
+   - **"copia CIFRADA del archivo original"** — el terminal también mantiene
+     el .ex5 original en memoria; ese no sirve, se descarta solo.
+5. Comprime `CAPTURA_GANCHO\` (unos MB, nada comparado con el `.dmp`) y súbela.
+
+Nota: ambos caminos son complementarios — el `.dmp` completo da contexto para
+Ghidra; el gancho da el objetivo aislado y los strings del bot en minutos.
+
 ## Qué NO contiene el kit
 
 - No toca tu cuenta, no envía nada a internet, no instala nada: solo copia
