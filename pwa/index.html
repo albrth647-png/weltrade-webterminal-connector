@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>WT Motor · Señales Weltrade</title>
+  <meta name="theme-color" content="#0d1117">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icono.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icono-192.png">
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --borde: #30363d;
+      --texto: #c9d1d9; --apagado: #8b949e;
+      --verde: #3fb950; --rojo: #f85149; --azul: #58a6ff; --ambar: #d29922;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--texto);
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    header {
+      display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+      border-bottom: 1px solid var(--borde); position: sticky; top: 0; background: var(--bg); z-index: 5;
+    }
+    header img { width: 26px; height: 26px; }
+    header h1 { font-size: 17px; margin: 0; flex: 1; }
+    .chip {
+      font-size: 12px; padding: 3px 10px; border-radius: 999px;
+      border: 1px solid var(--borde); color: var(--apagado); white-space: nowrap;
+    }
+    .chip.verde { color: var(--verde); border-color: var(--verde); }
+    .chip.rojo { color: var(--rojo); border-color: var(--rojo); }
+    .chip.ambar { color: var(--ambar); border-color: var(--ambar); }
+    main { padding: 12px; max-width: 720px; margin: 0 auto; }
+    section {
+      background: var(--panel); border: 1px solid var(--borde);
+      border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--apagado); margin: 0 0 10px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+    .dato { border: 1px solid var(--borde); border-radius: 8px; padding: 8px 10px; }
+    .dato .v { font-size: 18px; font-weight: 600; }
+    .dato .k { font-size: 11px; color: var(--apagado); }
+    label { display: block; font-size: 12px; color: var(--apagado); margin: 8px 0 3px; }
+    input {
+      width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--borde);
+      background: var(--bg); color: var(--texto); font-size: 14px;
+    }
+    input:focus { outline: 1px solid var(--azul); }
+    .fila { display: flex; gap: 10px; }
+    .fila > div { flex: 1; }
+    .btns { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    button {
+      padding: 10px 16px; border-radius: 8px; border: 1px solid var(--borde);
+      background: #21262d; color: var(--texto); font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    button:active { transform: translateY(1px); }
+    button.primario { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+    button.peligro { background: #6d1520; border-color: #da3633; color: #fff; }
+    button:disabled { opacity: .5; cursor: default; }
+    #log {
+      height: 180px; overflow-y: auto; font: 12px/1.5 ui-monospace, monospace;
+      background: var(--bg); border: 1px solid var(--borde); border-radius: 8px; padding: 8px 10px;
+    }
+    #log div { border-bottom: 1px solid #21262d; padding: 2px 0; word-break: break-word; }
+    .log-SENAL { color: var(--verde); font-weight: 600; }
+    .log-AVISO { color: var(--ambar); }
+    .log-TN { color: var(--rojo); }
+    .log-INFO { color: var(--apagado); }
+    .senal {
+      border: 1px solid var(--borde); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .senal .lado { font-weight: 700; }
+    .senal .l-COMPRA { color: var(--verde); }
+    .senal .l-VENTA { color: var(--rojo); }
+    .senal .meta { flex: 1; font-size: 13px; color: var(--apagado); }
+    .estado-simbolos { font-size: 13px; color: var(--apagado); line-height: 1.7; }
+    .ok { color: var(--verde); }
+    details summary { cursor: pointer; color: var(--azul); font-size: 13px; margin-bottom: 6px; }
+    .pie { text-align: center; color: var(--apagado); font-size: 11px; padding: 6px 0 20px; }
+    #instalar { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="icono.svg" alt="">
+    <h1>WT Motor</h1>
+    <span id="chip-conexion" class="chip">apagado</span>
+    <span id="chip-wakelock" class="chip">pantalla: n/a</span>
+  </header>
+
+  <main>
+    <!-- Estado -->
+    <section>
+      <div class="grid">
+        <div class="dato"><div class="v" id="d-ticks">0</div><div class="k">ticks/min</div></div>
+        <div class="dato"><div class="v" id="d-senales">0</div><div class="k">señales</div></div>
+        <div class="dato"><div class="v" id="d-tn">0</div><div class="k">zonas TN</div></div>
+        <div class="dato"><div class="v" id="d-reconex">0</div><div class="k">reconexiones</div></div>
+      </div>
+    </section>
+
+    <!-- Señales -->
+    <section>
+      <h2>Última señal · historial</h2>
+      <div id="senales" class="estado-simbolos">— sin señales todavía —</div>
+    </section>
+
+    <!-- Control -->
+    <section>
+      <h2>Control</h2>
+      <div class="btns">
+        <button id="b-conectar" class="primario">Conectar</button>
+        <button id="b-desconectar" class="peligro" disabled>Desconectar</button>
+        <button id="b-test-telegram">Probar Telegram</button>
+        <button id="b-test-notif">Probar notificación</button>
+        <button id="b-instalar" disabled>Instalar app</button>
+      </div>
+      <div class="pie" id="nota-origen">Arranca el motor y deja esta app abierta con la pantalla encendida.</div>
+    </section>
+
+    <!-- Log -->
+    <section>
+      <h2>Registro</h2>
+      <div id="log"></div>
+    </section>
+
+    <!-- Configuración -->
+    <section>
+      <h2>Configuración (se guarda en este teléfono)</h2>
+      <div class="fila">
+        <div><label for="c-login">Cuenta (login)</label><input id="c-login" inputmode="numeric" autocomplete="off" placeholder="12345678"></div>
+        <div><label for="c-pass">Contraseña</label><input id="c-pass" type="password" autocomplete="off"></div>
+      </div>
+      <label for="c-host">Servidor</label>
+      <input id="c-host" autocomplete="off" value="mt5.demo.weltrade.org">
+      <div class="fila">
+        <div><label for="c-simbolos">Símbolos (vacío = todos los sintéticos)</label><input id="c-simbolos" autocomplete="off" placeholder="FX Vol 20, FX Vol 60, FX Vol 99"></div>
+        <div><label for="c-score">Score mínimo (60)</label><input id="c-score" inputmode="numeric" autocomplete="off" value="60"></div>
+      </div>
+      <div class="fila">
+        <div><label for="c-tgtoken">Token de Telegram (bot)</label><input id="c-tgtoken" type="password" autocomplete="off" placeholder="123456:ABC..."></div>
+        <div><label for="c-tgchat">Chat ID de Telegram</label><input id="c-tgchat" inputmode="numeric" autocomplete="off" placeholder="-100..."></div>
+      </div>
+      <div class="pie">Las velas descargadas se guardan en este teléfono (IndexedDB): al reconectar solo se piden las que faltan.</div>
+    </section>
+
+    <!-- Resumen del motor -->
+    <section>
+      <h2>Motor</h2>
+      <div id="resumen" class="estado-simbolos">— motor apagado —</div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
