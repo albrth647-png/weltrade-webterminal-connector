@@ -168,6 +168,50 @@ print("   servidor final:", SERVER, "(%s)" % ("conectado" if conectado else "sin
 sh("wineserver -k || true", show=False)
 time.sleep(5)
 
+# ---------------------------------------------------------------- 4.5 descubrimiento de simbolos
+# La cuenta puede ser SyntX (solo indices sinteticos) y NO tener el oro: si el tester
+# pide un simbolo inexistente se queda esperando. Aqui leemos el arbol real del servidor
+# en bases/ y elegimos un simbolo que EXISTA, en este orden de preferencia:
+#   1) candidato exacto del usuario (LAB_SYMBOL admite 'a;b;c')  2) oro (XAU/GOLD)
+#   3) sinteticos (Vol/Boom/Crash/PainX/GainX/...)               4) el primero disponible
+paso(4, "b · descubrimiento de simbolos del servidor")
+bases_dir = os.path.join(MT5DIR, "bases")
+simbolos_srv = set()
+GRUPOS = {"currencies", "forex", "metals", "indices", "index", "crypto", "stocks",
+          "futures", "bonds", "etf", "options", "other", "synthetic", "synthetics",
+          "commodities", "shares", "charts"}
+if os.path.isdir(bases_dir):
+    for root, dirs, files in os.walk(bases_dir):
+        if any(f.lower().endswith(".hcc") for f in files):
+            simbolos_srv.add(os.path.basename(root))
+        nombre = os.path.basename(root)
+        padre = os.path.basename(os.path.dirname(root))
+        if nombre.lower() not in GRUPOS and padre.lower() in GRUPOS:
+            simbolos_srv.add(nombre)
+simbolos_srv = sorted(s for s in simbolos_srv if s)
+try:
+    open(os.path.join(OUT, "simbolos_disponibles.txt"), "w").write(
+        "\n".join(simbolos_srv) if simbolos_srv else "(bases vacio tras el login: sin cache de historial)\n")
+except Exception:
+    pass
+print("   simbolos detectados en el servidor:", len(simbolos_srv), flush=True)
+for s in simbolos_srv[:40]:
+    print("   ·", s, flush=True)
+
+cands_env = [s.strip() for s in SYMBOL.split(";") if s.strip()] or ["XAUUSD"]
+low = {s.lower(): s for s in simbolos_srv}
+ELEGIDO = next((low[c.lower()] for c in cands_env if c.lower() in low), None)
+if not ELEGIDO:
+    ELEGIDO = next((s for s in simbolos_srv if "xau" in s.lower() or "gold" in s.lower()), None)
+if not ELEGIDO:
+    FAMS = ("vol", "boom", "crash", "painx", "gainx", "flipx", "switchx", "breakx",
+            "trendx", "jump", "step", "syn", "idx")
+    ELEGIDO = next((s for s in simbolos_srv if any(f in s.lower() for f in FAMS)), None)
+if not ELEGIDO:
+    ELEGIDO = simbolos_srv[0] if simbolos_srv else cands_env[0]
+SYMBOL = ELEGIDO
+print("   SIMBOLO ELEGIDO PARA EL TESTER:", SYMBOL, flush=True)
+
 # ---------------------------------------------------------------- 5. tester + dumper
 paso(5, "Probador de estrategias + volcado de memoria en paralelo (15-90 min)")
 ini_test = os.path.join(WORK, "tester.ini")
