@@ -21,6 +21,11 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ClienteMT5 } from './cliente_mt5.js';
 import { ClienteMT5Web } from '../pwa/proto.js';
+import { Estrategia as EstrategiaPWA } from '../pwa/motor.js';
+import { formatearSenal as formatearPWA } from '../pwa/motor.js';
+import { Estrategia as EstrategiaNodo } from './estrategia.js';
+import { formatearSenal as formatearNodo } from './telegram.js';
+import { validarDoc, docACfg } from './doc_estrategia.js';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 let ok = 0, mal = 0;
@@ -198,6 +203,71 @@ function testConstantes() {
   check('B1: PWA calcula la huella en UTF-8 (TextEncoder)', pwa.includes("new TextEncoder().encode(`termux;"));
 }
 
+/* ---------- 10. cerrar() idempotente (anti doble reconexión) ---------- */
+async function testCerrarIdempotente() {
+  console.log('— cerrar() triple → UN solo evento (anti bucle de reconexiones) —');
+  for (const [nombre, fabricar] of [['Node', () => new ClienteMT5({})], ['PWA', () => new ClienteMT5Web({})]]) {
+    const cliente = fabricar();
+    const cierres = [];
+    cliente.on('cerrar', () => cierres.push(1));
+    cliente._cerrar();       // muerte de red
+    cliente.cerrar();        // cierre explícito (conectarInternal/desconectar)
+    cliente._cerrar();       // onclose tardío
+    await espera();
+    check(`${nombre}: 3 vías de cierre → 1 solo evento 'cerrar'`, cierres.length === 1, `obtuvo ${cierres.length}`);
+    check(`${nombre}: etapa 'apagado'`, cliente.etapa === 'apagado');
+    // una sesión nueva reanuda el guard (conectar() hace this._cerrada = false;
+    // aquí se simula SIN abrir socket real: el test es 100 % offline)
+    cliente._cerrada = false;
+    cliente._cerrar();
+    await espera();
+    check(`${nombre}: sesión nueva emite su propio 'cerrar'`, cierres.length === 2);
+  }
+}
+
+/* ---------- 11. setHistoria descarta la vela EN FORMACIÓN ---------- */
+async function testVelaFormandose() {
+  console.log('— setHistoria: la vela en formación del servidor NO entra al búfer —');
+  const ahora = Date.now();
+  const cerrada = { t: ahora - 900e3 - 5000, o: 100, h: 101, l: 99, c: 100.5 };   // M15 ya cerrada
+  const formandose = { t: ahora - 5000, o: 100.5, h: 100.9, l: 100.1, c: 100.7 }; // aún viva (t+15min > ahora)
+
+  const pwa = new EstrategiaPWA({ scoreMin: 60 });
+  pwa.setHistoria('FX Vol 20', 'M15', [cerrada, formandose]);
+  const bufPwa = pwa.s.get('FX Vol 20').velas.M15;
+  check('PWA: búfer sin la vela en formación', bufPwa.length === 1 && bufPwa[0].t === cerrada.t, JSON.stringify(bufPwa));
+
+  const vDoc = validarDoc(JSON.parse(fs.readFileSync(path.join(AQUI, 'estrategias', 'raptor_default.json'), 'utf8')));
+  const nodo = new EstrategiaNodo(docACfg(vDoc.doc));
+  nodo.setHistoria('FX Vol 20', 'M15', [cerrada, formandose]);
+  const bufNodo = nodo.s.get('FX Vol 20').velas.M15;
+  check('Node: búfer sin la vela en formación', bufNodo.length === 1 && bufNodo[0].t === cerrada.t, JSON.stringify(bufNodo));
+
+  // historia() accesible para re-sembrado incremental (Node) y panel (PWA)
+  check('PWA: historia() devuelve el búfer', pwa.historia('FX Vol 20').M15.length === 1);
+  check('Node: historia() devuelve el búfer', nodo.historia('FX Vol 20').M15.length === 1);
+  check('PWA: zonasDe()/velaActual() para el panel canvas', Array.isArray(pwa.zonasDe('FX Vol 20')) && pwa.velaActual('FX Vol 20', 'M15') === null);
+
+  // el cierre real posterior ya NO lo bloquea la vela congelada (el bug M-original)
+  pwa.onVelaCerrada('FX Vol 20', 'M15', { t: ahora - 5000, o: 100.5, h: 101.2, l: 100.4, c: 101.0 });
+  check('PWA: el cierre real de esa vela SÍ entra tras la siembra', pwa.s.get('FX Vol 20').velas.M15.length === 2);
+}
+
+/* ---------- 12. formatearSenal: escape HTML + hora ---------- */
+async function testTelegramFormato() {
+  console.log('— formatearSenal: escape HTML y hora UTC —');
+  const s = {
+    lado: 'COMPRA', simbolo: 'FX Vol <20>', fase: 'MAIN', sesgo: 'alza',
+    tfZona: 'M15', nivel: 98.6, precio: 98.9, sl: 97.4, tp: 101.1, score: 75,
+    motivo: 'MAIN en soporte (fuerza 2) & retest', t: Date.UTC(2026, 0, 2, 3, 4, 0),
+  };
+  for (const [nombre, msg] of [['PWA', formatearPWA(s)], ['Node', formatearNodo(s)]]) {
+    check(`${nombre}: símbolo con < > escapado`, msg.includes('FX Vol &lt;20&gt;') && !msg.includes('FX Vol <20>'), msg.split('\n')[0]);
+    check(`${nombre}: & del motivo escapado`, msg.includes('fuerza 2) &amp; retest'));
+    check(`${nombre}: incluye hora UTC`, /Hora: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/.test(msg));
+  }
+}
+
 /* ---------- ejecución ---------- */
 try {
   await testHandshake();
@@ -205,6 +275,9 @@ try {
   await testCatalogoYTicks();
   await testVelas();
   testConstantes();
+  await testCerrarIdempotente();
+  await testVelaFormandose();
+  await testTelegramFormato();
 } catch (e) {
   mal++;
   console.error('✗ excepción en el test:', e);

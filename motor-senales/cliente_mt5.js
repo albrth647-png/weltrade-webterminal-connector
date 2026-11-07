@@ -63,6 +63,11 @@ class ClienteMT5 extends EventEmitter {
     this.etapa = 'apagado';
     this._ping = null;
     this._pendientes11 = new Map(); // nombre -> {resolver, timer}
+    this._cola11 = null;              // serialización de peticiones de velas
+    this._silencio11Hasta = 0;        // ventana anti-respuesta-tardía tras un timeout
+    this._cerrada = false;            // guard de idempotencia de _cerrar
+    this._ultimoRX = 0;               // último byte recibido (detector de socket medio-abierto)
+    this._tAbrir = null;
   }
 
   _log(msg) { this.emit('aviso', msg); }
@@ -76,10 +81,26 @@ class ClienteMT5 extends EventEmitter {
 
   conectar() {
     this.etapa = 'conectando';
+    this._cerrada = false;                    // nueva sesión: el guard de cierre se reinicia
     const ws = new WebSocket(`wss://${this.host}/terminal`);
     this.ws = ws;
     ws.binaryType = 'arraybuffer';
-    this._ping = setInterval(() => this._enviar(51, Buffer.alloc(0)), 8000);
+    this._ultimoRX = Date.now();
+    this._ping = setInterval(() => {
+      // socket medio-abierto: 3 pulsos sin recibir NADA = muerto → cerrar ya
+      if (Date.now() - this._ultimoRX > 25000) {
+        this._log('sin respuesta del servidor durante 25 s — cerrando para reconectar');
+        this.cerrar();
+        return;
+      }
+      this._enviar(51, Buffer.alloc(0));
+    }, 8000);
+    this._tAbrir = setTimeout(() => {
+      if (this.etapa !== 'listo') {
+        this._log('sin sesión completa tras 20 s — cerrando para reintentar');
+        this.cerrar();
+      }
+    }, 20000);
 
     ws.onopen = () => { this.etapa = 'handshake'; this._enviar(0, Buffer.alloc(64)); };
     ws.onclose = () => this._cerrar();
@@ -87,10 +108,15 @@ class ClienteMT5 extends EventEmitter {
     ws.onmessage = (ev) => this._onMensaje(Buffer.from(ev.data));
   }
 
+  /* Idempotente: muerte de red + cerrar() explícito + onclose tardío
+     emitían DOS 'cerrar' y la app agendaba DOS reconexiones. UNA como sea. */
   _cerrar() {
+    if (this._cerrada) return;
+    this._cerrada = true;
     clearInterval(this._ping);
+    clearTimeout(this._tAbrir);
     this.etapa = 'apagado';
-    for (const [, p] of this._pendientes11) { clearTimeout(p.timer); p.resolver(null); }
+    for (const [, p] of this._pendientes11) { clearTimeout(p.timer); if (p.debounce) clearTimeout(p.debounce); p.resolver(null); }
     this._pendientes11.clear();
     this.emit('cerrar');
   }
@@ -98,6 +124,7 @@ class ClienteMT5 extends EventEmitter {
   cerrar() { try { this.ws && this.ws.close(); } catch (e) { } this._cerrar(); }
 
   _onMensaje(buf) {
+    this._ultimoRX = Date.now();   // hay señal vital aunque el frame no se entienda
     let p;
     try { p = parseRX(aesDec(this.clave, buf.subarray(8))); } catch (e) { return; }
 
@@ -184,8 +211,20 @@ class ClienteMT5 extends EventEmitter {
      packet[66..74)  = [u32 desde][u32 hasta] (época en segundos; el servidor
                        responde con las velas de ese rango)
      Respuesta: registros de 48 B [u32 t][f64 o][f64 h][f64 l][f64 c][u32 vol][u32 ?] */
-  pedirVelas(nombre, { tf = 'H1', dias = 90, desde = 0, hasta = 0, timeoutMs = 10000 } = {}) {
+  /* Serializadas: cmd 11 no trae el símbolo en la respuesta y el reparto
+     va a TODOS los pendientes — dos peticiones solapadas corromperían el
+     histórico con velas del símbolo equivocado. Una cada vez. */
+  pedirVelas(nombre, opts = {}) {
     if (this.etapa !== 'listo' || !this.ids[nombre]) return Promise.resolve(null);
+    this._cola11 = (this._cola11 || Promise.resolve())
+      .then(() => this._pedirVelasUna(nombre, opts), () => this._pedirVelasUna(nombre, opts));
+    return this._cola11;
+  }
+
+  async _pedirVelasUna(nombre, { tf = 'H1', dias = 90, desde = 0, hasta = 0, timeoutMs = 10000 } = {}) {
+    const guardia = Math.max(0, this._silencio11Hasta - Date.now());
+    if (guardia) await new Promise((ok) => setTimeout(ok, guardia));
+    if (this.etapa !== 'listo' || !this.ids[nombre]) return null;
     const ENUM_TF = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 0x4001, H4: 0x4004, D1: 0x4018 };
     const periodo = ENUM_TF[tf] ?? 0x4001;
     const packet = Buffer.alloc(78);                          // [4B cabecera][60B símbolo][2B tf][8B rango]
@@ -199,9 +238,11 @@ class ClienteMT5 extends EventEmitter {
       const timer = setTimeout(() => {
         const pend = this._pendientes11.get(nombre);
         if (pend && pend.debounce) clearTimeout(pend.debounce);
-        this._pendientes11.delete(nombre); resolver(null);
+        this._pendientes11.delete(nombre);
+        this._silencio11Hasta = Date.now() + 1500;   // traga respuestas tardías del timeout
+        resolver(null);
       }, timeoutMs);
-      this._pendientes11.set(nombre, { resolver, timer });
+      this._pendientes11.set(nombre, { resolver, timer, iniciado: Date.now() });
       this._enviarPacket(packet);
     });
   }

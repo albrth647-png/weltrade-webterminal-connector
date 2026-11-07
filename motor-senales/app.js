@@ -23,6 +23,7 @@ const VERBOSO = process.env.MS_VERBOSO === '1';
 
 // días de historia por TF para la siembra (operativo, no estratégico)
 const DIAS_SEMILLA = { M1: 2, M5: 3, M15: 15, M30: 40, H1: 90, H4: 180, D1: 365 };
+const SEG_TF = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
 
 const log = (nivel, msg, extra) => {
   const linea = `[${new Date().toISOString()}] [${nivel}] ${msg}`;
@@ -66,6 +67,13 @@ function construirEstrategia(doc) {
   return e;
 }
 
+function unirVelas(viejas, nuevas) {
+  const m = new Map();
+  for (const v of viejas) m.set(v.t, v);
+  for (const v of nuevas) m.set(v.t, v);   // si repite t, manda la del servidor
+  return [...m.values()].sort((a, b) => a.t - b.t);
+}
+
 async function resembrar() {
   if (stats.resembrando) return;
   stats.resembrando = true;
@@ -76,11 +84,23 @@ async function resembrar() {
     log('INFO', `sembrando historial de ${simbolosActivos.length} símbolos (${plan.map((p) => p[0]).join('/')}) para "${doc.meta.nombre}"...`);
     for (const s of simbolosActivos) {
       for (const [tf, dias] of plan) {
-        const r = await cliente.pedirVelas(s, { tf, dias });
-        if (r && r.velas.length) {
-          estrategia.setHistoria(s, tf, r.velas);
-          log('INFO', `${tf} ${s}: ${r.velas.length} velas (${r.descartadas} descartadas)`);
-        } else {
+        /* re-sembrado INCREMENTAL: tras una reconexión el búfer en memoria
+           sigue vivo — solo se piden las velas posteriores a la última
+           (antes se redescargaban los días completos en CADA reconexión) */
+        const previas = (estrategia.historia(s) || {})[tf] || [];
+        const ultima = previas.length ? previas[previas.length - 1].t : 0;
+        if (previas.length && Date.now() - ultima < (SEG_TF[tf] || 900) * 1000) continue;   // caché al día
+        const desde = ultima ? Math.floor(ultima / 1000) + 1 : 0;
+        const r = await cliente.pedirVelas(s, { tf, dias, desde, timeoutMs: desde ? 4000 : 10000 });
+        let nuevas = r && r.velas.length ? r.velas : [];
+        if (!nuevas.length && desde) {
+          const r2 = await cliente.pedirVelas(s, { tf, dias, timeoutMs: 6000 });   // reintento único
+          if (r2 && r2.velas.length) nuevas = r2.velas;
+        }
+        if (nuevas.length) {
+          estrategia.setHistoria(s, tf, unirVelas(previas, nuevas));   // setHistoria recorta la vela formándose
+          log('INFO', `${tf} ${s}: ${previas.length} en memoria + ${nuevas.length} nuevas`);
+        } else if (!previas.length) {
           log('AVISO', `${tf} ${s}: sin respuesta — se calienta con ticks en vivo`);
         }
         await new Promise((r2) => setTimeout(r2, 350)); // espaciado entre peticiones
@@ -124,12 +144,30 @@ gestor.on('cambio', async (doc) => {
 });
 
 cliente.on('aviso', (m) => log('INFO', m));
+
+// ---------- bucle de reconexión ----------
+/* Un login rechazado NO es una caída de red: no se reintenta en bucle
+   (evita martillear el servidor y arriesgar bloqueo de cuenta).
+   Estado terminal: corrige .env y reinicia el proceso.
+   UN solo handler de 'cerrar': antes había dos (uno contaba y otro
+   reconectaba) y el doble emit del cliente los disparaba en cascada. */
+let credRechazadas = false;
+let espera = 3000;
+let tReconexion = null;
+function arrancar() {
+  cliente.conectar();
+}
+cliente.on('login_rechazado', ({ dd }) => {
+  credRechazadas = true;
+  log('ERROR', `login rechazado (dd=${dd}) — credenciales o servidor inválidos. SIN reconexión automática: corrige .env y reinicia.`);
+});
 cliente.on('cerrar', () => {
+  if (credRechazadas) { log('AVISO', 'parado: credenciales rechazadas (sin reintento automático)'); return; }
   stats.reconexiones++;
   log('AVISO', 'sesión cerrada — reconectando...');
+  clearTimeout(tReconexion);   // UN solo temporizador, nunca dos en carrera
+  tReconexion = setTimeout(() => { espera = Math.min(30000, espera * 1.5); arrancar(); }, espera);
 });
-
-// ---------- servidor HTTP ----------
 (async () => {
   await crearServidor(() => ({
     uptime_s: Math.floor((Date.now() - stats.iniciado) / 1000),
@@ -147,22 +185,8 @@ cliente.on('cerrar', () => {
 })();
 
 // ---------- bucle de reconexión ----------
-/* Un login rechazado NO es una caída de red: no se reintenta en bucle
-   (evita martillear el servidor y arriesgar bloqueo de cuenta).
-   Estado terminal: corrige .env y reinicia el proceso. */
-let credRechazadas = false;
-let espera = 3000;
-function arrancar() {
-  cliente.conectar();
-}
-cliente.on('login_rechazado', ({ dd }) => {
-  credRechazadas = true;
-  log('ERROR', `login rechazado (dd=${dd}) — credenciales o servidor inválidos. SIN reconexión automática: corrige .env y reinicia.`);
-});
-cliente.on('cerrar', () => {
-  if (credRechazadas) { log('AVISO', 'parado: credenciales rechazadas (sin reintento automático)'); return; }
-  setTimeout(() => { espera = Math.min(30000, espera * 1.5); arrancar(); }, espera);
-});
+/* (el handler único de 'cerrar' está más arriba, junto al resto de
+   cableados del cliente: UNA suscripción, UN temporizador) */
 
 process.on('SIGTERM', () => { log('INFO', 'SIGTERM — cerrando'); cliente.cerrar(); process.exit(0); });
 process.on('SIGINT', () => { log('INFO', 'SIGINT — cerrando'); cliente.cerrar(); process.exit(0); });

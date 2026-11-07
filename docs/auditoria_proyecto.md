@@ -242,3 +242,87 @@ Todas las correcciones P0/P1/P2 están implementadas y verificadas (suite comple
 | **B10** instalador sin verificación | `instalar.sh` comprueba el sha256 de `conector.js` contra `conector.js.sha256` publicado junto a él; aborta si no coincide (escape `--sin-verificar`) | `conector/instalar.sh`, `conector.js.sha256` (nuevo) |
 
 **Pendiente fuera del código** (requiere entorno en vivo, igual que en la auditoría): la verificación única con cuenta demo de que el WSS acepta el `Origin` del navegador de la PWA (P0.3 de la sección 6).
+
+---
+
+## 10. Auditoría profunda v2 (2026-11-08) — PWA: Telegram, almacenamiento, estabilidad, reconexión, credenciales, datos
+
+Segunda pasada, a demanda del propietario, centrada en la PWA y su operación real en el teléfono. Metodología: lectura línea a línea de los 9 ficheros de `pwa/` y sus espejos Node, trazado de flujo de cada evento (`listo`/`tick`/`cerrar`/`login_rechazado`), simulación de ciclo de vida (congelado de Android, socket medio-abierto, siembra interrumpida) y navegador headless para verificar el panel nuevo. Suite final: **`test_protocolo` 68/68 + `test_estrategia` 16/16 + `test_importador` OK**, más verificación visual del gráfico.
+
+### 10.1 Respuestas directas a las preguntas de la auditoría
+
+**¿Qué activos se descargan al ejecutarse la PWA?** Tres capas:
+1. **Catálogo completo (cmd 6)**: una sola vez por sesión, la lista de TODOS los símbolos del servidor (registros de 526 B, ~50 KB). No se guarda en disco: se re-pide en cada conexión.
+2. **Suscripción de ticks (cmd 7)**: si escribiste símbolos en Configuración, solo esos (coincidencia exacta, insensible a mayúsculas). Si el campo está vacío, el filtro genérico `^(FX Vol|SFX Vol|Step|Boom|Crash|Range|FlipX|Drift)` — **con tope nuevo de 40 símbolos** (antes: cientos de sintéticos podían agotar la memoria del teléfono; ahora se avisa en el log y se suscriben los primeros 40).
+3. **Histórico de velas (cmd 11)** por símbolo suscrito: **H1 45 días (~1.080 velas), M15 22 días (~2.112), M5 11 días (~3.168)** ≈ 300–400 KB por símbolo la primera vez. En reconexiones solo se piden las velas posteriores a la última guardada (incremental, con un reintento único si vuelve vacía).
+
+**¿Cuántas velas se mantienen guardadas?** Dos niveles con el mismo tope (`MAX_VELAS_TF`): en memoria (búfer del motor) y en IndexedDB: **1.000 H1 + 2.000 M15 + 3.000 M5 = 6.000 velas por símbolo** (~240–350 KB compactadas como arrays `[t,o,h,l,c]`). Con 40 símbolos: ~10–14 MB — dentro de la cuota típica de IndexedDB en Android, y se pide `navigator.storage.persist()` para que el SO no la borre. Las señales: últimas 30 en `localStorage`. El registro de log: 300 líneas en memoria (nada en disco).
+
+**¿Dónde vive cada dato local?** (tabla de almacenamiento)
+
+| Dato | Almacén | Clave | Ciclo de vida |
+|---|---|---|---|
+| Credenciales + Telegram + score | `sessionStorage` (defecto) o `localStorage` (si marcas «Recordar») | `wt_pwa_config_v1` | sesión / persistente |
+| Señales recibidas | `localStorage` | `wt_pwa_senales_v1` | últimas 30, para siempre |
+| Histórico de velas | IndexedDB `wt_pwa_velas` → almacén `velas` | `SIMBOLO\|TF` | recortado a 6.000/símbolo |
+| Shell de la app (offline) | Cache Storage `wt-pwa-<hash>` | auto-versionada por SHA-256 | se renueva sola al cambiar cualquier fichero |
+| Zonas/sesgo/ATR | solo memoria | — | se reconstruyen de las velas al arrancar |
+
+NUEVO: botón **«Borrar datos locales»** en Configuración: vacía de una vez credenciales, señales e IndexedDB de velas (útil para vender/cambiar el teléfono o tras cambiar de bot de Telegram).
+
+**Credenciales de la cuenta demo (login Weltrade)**: el cuerpo de login de 912 B manda contraseña UTF-16LE @4, huella SHA-1 @196 (no validada), servidor @480 y cuenta @736 sobre el canal ya cifrado AES-256-CBC con clave de sesión. La contraseña **no se loguea nunca** (`scrub` acorta todo token/secret de los avisos) y **no sale del dispositivo**: solo al WSS de Weltrade; el token de Telegram solo a `api.telegram.org`. Riesgo residual aceptado y documentado: credenciales en almacenamiento del navegador si marcas «Recordar» (cualquier XSS las leería; no hay XSS conocido — todas las inserciones DOM usan `textContent` o escape). Recomendación vigente: usar cuenta **demo**, no marcar «Recordar» en teléfonos compartidos, y rotar el token del bot si se pegó en algún chat.
+
+**Señales a Telegram — qué se manda y fiabilidad**: el mensaje HTML contiene lado, símbolo, fase, sesgo H1, nivel de zona, precio, SL/TP (±1×ATR / ±2×ATR), motivo y **ahora también la hora UTC**. Hallazgos corregidos: (a) sin timeout, un Telegram colgado dejaba la señal en el limbo → **AbortController 10 s**; (b) sin reintento → **1 reintento** que respeta `retry_after` de los 429 y espera 2 s en errores 5xx/red; (c) símbolo con `<`, `>`, `&` del catálogo rompía el `parse_mode=HTML` con 400 y la señal **nunca llegaba** → **escape HTML** de todos los campos dinámicos (test permanente).
+
+**Estabilidad / falta de conexión / reintentos** — el hallazgo más grave de esta segunda pasada era un **bucle de reconexiones**: `cerrar()` era capaz de emitir el evento `cerrar` **dos veces** (muerte de red + `cerrar()` explícito + `onclose` tardío) y cada emit agendaba su propio temporizador de reconexión → conexiones creadas y asesinadas cada ~3 s con contador de reconexiones disparado. Corregido de raíz en los 3 clientes (`_cerrar()` idempotente) y con un único temporizador de reconexión en la UI. Además:
+
+| Defensa | Antes | Ahora |
+|---|---|---|
+| Socket medio-abierto (Android congela la app, NAT cae) | nadie lo detectaba: chip «listo» muerto para siempre | ping cada 8 s comprueba recepción; **25 s sin NADA → cierre y backoff** |
+| App vuelve del congelamiento sin datos | esperaba al primer fallo real | `visibilitychange`: sin datos frescos 15 s → reconexión inmediata |
+| Watchdog en primer plano | no existía | 45 s sin ticks con sesión «listo» → reconexión forzada |
+| TCP colgado a medio abrir | la etapa quedaba «conectando» eterna | timeout de 20 s: si no hay sesión completa, corta y reintenta |
+| Reconexión doble | 2 emits × 2 handlers | 1 emit idempotente + 1 handler + 1 temporizador |
+| Login rechazado | (v1) máx. 3 intentos y para | igual, se mantiene |
+| Errores silenciosos | excepciones sin rastro en el teléfono | `unhandledrejection`/`error` caen al registro visible |
+
+**Vela en formación (hallazgo de corrección de datos)**: el servidor manda la vela viva al final del histórico (cmd 11). Sin quitarla, quedaba **congelada para siempre** con su cierre parcial: bloqueaba el cierre real (mismo `t` en `onVelaCerrada`), envenenaba el barrido TN y el escaneo de pivotes, y se **persistía corrupta en IndexedDB**, sobreviviendo a reinicios. Corregido en los dos motores (`setHistoria` recorta la vela viva) y en la siembra PWA (se recorta antes de unir y guardar). Test permanente añadido.
+
+**cmd 11 sin identificación de símbolo (hallazgo latente)**: la respuesta no trae el símbolo y el reparto va a TODOS los pendientes; dos peticiones solapadas habrían mezclado velas de símbolos distintos (corrupción silenciosa del histórico). Hoy solo hay una petición en vuelo por diseño secuencial, pero quedó **serializada por promesa-cola** con ventana de silencio tras cada timeout, para que siga siendo imposible aunque el código cambie.
+
+**PWA general**: `manifest.json` correcto (standalone, iconos 192/512/maskable/SVG); service worker auto-versionado por hash — **añadidos a la shell** `velas_canvas.js` e `icono-512.png`;Wake Lock con re-adquisición al volver a visible; notificaciones locales vía SW controller con fallback a `new Notification`.
+
+### 10.2 Panel de velas en `<canvas>` (funcionalidad nueva)
+
+Reivindicado en «Siguientes pasos» del LEEME y pedido explícitamente. Implementación **sin librerías y sin red** (`pwa/velas_canvas.js`, clase `PanelVelas`):
+
+- Velas M5/M15/H1 del símbolo elegido (selector poblado al conectar) + **vela en formación** semitransparente con borde punteado, reconstruida de ticks en vivo.
+- **Zonas activas del motor** dibujadas: soporte verde / resistencia roja punteadas con su fuerza; marcadores ▲/▼ de las últimas señales del símbolo con su score; línea punteada del último precio con etiqueta en el eje.
+- Gestos táctiles: arrastrar = desplazar al pasado, pellizco = zoom (anclado a la vela bajo los dedos), **doble toque = volver al presente**; en escritorio rueda = zoom y crosshair con OHLC de la vela apuntada.
+- Nitidez por `devicePixelRatio`, render bajo `requestAnimationFrame` solo cuando cambian datos o vista (0 % CPU en reposo), `touch-action: none` solo en el canvas.
+- Refresco cada 2 s con el mismo latido de la UI y tras cada siembra. Verificado en navegador headless con datos sintéticos: vista en vivo, zoom, y viaje al pasado con escala correcta.
+
+### 10.3 Correcciones aplicadas en esta pasada v2
+
+| # | Hallazgo | Severidad | Corrección | Ficheros |
+|---|---|---|---|---|
+| V2-1 | Doble emisión de `cerrar` → bucle de reconexiones cada ~3 s | **alta** | `_cerrar()` idempotente + un solo temporizador; handler único en Node | `pwa/proto.js`, `motor-senales/cliente_mt5.js`, `pwa/app.js`, `motor-senales/app.js` |
+| V2-2 | Socket medio-abierto indetectable (app congelada) | **alta** | watchdog de recepción (25 s), reconexión al volver visible (15 s), watchdog de ticks (45 s), timeout de apertura (20 s) | ambos clientes, `pwa/app.js` |
+| V2-3 | Vela en formación congelada y persistida corrupta | **alta** | recorte en `setHistoria` (ambos motores) y antes de unir/guardar (PWA); test permanente | `pwa/motor.js`, `motor-senales/estrategia.js`, `pwa/app.js`, `test_protocolo.mjs` |
+| V2-4 | Telegram sin timeout/reintento; HTML sin escapar | media | AbortController 10 s, reintento con `retry_after`, escape HTML, hora UTC; test permanente | `pwa/motor.js`, `motor-senales/telegram.js` |
+| V2-5 | cmd 11 reparte a todos los pendientes (corrupción latente) | media | peticiones serializadas + ventana de silencio tras timeout | ambos clientes |
+| V2-6 | `sembrar()` con `TypeError` mudo si el motor se apaga a mitad | media | guard `sembraViva()` tras cada `await` | `pwa/app.js` |
+| V2-7 | Node re-descargaba TODO el histórico en cada reconexión | media | re-sembrado incremental con `historia()` + fusión (paridad con la PWA) | `motor-senales/app.js`, `motor-senales/estrategia.js` |
+| V2-8 | Sin tope de símbolos con el filtro genérico (memoria del teléfono) | media | tope 40 en la suscripción con aviso en el log | `pwa/proto.js`, `pwa/app.js` |
+| V2-9 | Comparación de `ESTADO_TOKEN` con timing lateral | baja | `crypto.timingSafeEqual` | `motor-senales/servidor.js` |
+| V2-10 | Errores JS sin rastro en el teléfono | baja | handlers globales → registro visible | `pwa/app.js` |
+| V2-11 | Shell del SW incompleta para offline total | baja | añadidos `velas_canvas.js` e `icono-512.png` | `pwa/sw.js` |
+| V2-12 | Sin forma de vaciar datos locales | baja | botón «Borrar datos locales» (credenciales + señales + IndexedDB) | `pwa/index.html`, `pwa/app.js`, `pwa/velas_db.js` |
+
+Suite final: `node test_protocolo.mjs` → **68 OK / 0 fallos** (incluye los 18 checks nuevos de esta pasada), `test_estrategia` 16/16, `test_importador` OK; `node --check` limpio en los 13 módulos; panel verificado visualmente en navegador headless (vivo, zoom, pasado).
+
+### 10.4 Límites que siguen abiertos (honestidad operativa)
+
+1. **Verificación con cuenta demo real** de que el WSS acepta el `Origin` del hosting de la PWA (sigue siendo el único riesgo de protocolo no reproducible sin red).
+2. Android puede matar el proceso del navegador con la app en segundo plano prolongado: el Wake Lock cubre pantalla encendida; para 24/7 real sigue recomendándose el motor Node en Render + pinger.
+3. Las respuestas tardías de cmd 11 que lleguen después de la ventana de silencio (1,5 s tras un timeout) serían atribuidas a la petición siguiente — estadísticamente despreciable (el servidor responde en <1 s), documentada por transparencia.

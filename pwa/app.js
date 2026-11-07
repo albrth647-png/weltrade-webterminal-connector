@@ -9,8 +9,9 @@
    ============================================================ */
 import { ClienteMT5Web } from './proto.js';
 import { Estrategia, enviarTelegram, formatearSenal, MAX_VELAS_TF } from './motor.js';
-import { abrirVelasDB, guardarVelas, cargarVelas } from './velas_db.js';
+import { abrirVelasDB, guardarVelas, cargarVelas, borrarTodasLasVelas } from './velas_db.js';
 import { radiografiar } from './radio.js';
+import { PanelVelas } from './velas_canvas.js';
 
 /* ---------- referencias UI ---------- */
 const $ = (id) => document.getElementById(id);
@@ -85,6 +86,16 @@ function log(nivel, msg) {
 /* evita volcar token/contraseña al log si algún mensaje los contiene */
 const scrub = (s) => String(s).replace(/[A-Za-z0-9_-]{20,}/g, (m) => m.slice(0, 6) + '…');
 
+/* errores que antes morían en silencio en el teléfono (stability): ahora
+   quedan en el registro con la marca de tiempo para poder depurar */
+window.addEventListener('unhandledrejection', (ev) => {
+  const r = ev.reason;
+  log('AVISO', 'error interno: ' + scrub(String((r && r.message) || r || 'desconocido')).slice(0, 160));
+});
+window.addEventListener('error', (ev) => {
+  log('AVISO', 'error: ' + scrub(String(ev.message || 'desconocido')).slice(0, 160));
+});
+
 /* ---------- señales (persistidas) ---------- */
 const CLAVE_SEN = 'wt_pwa_senales_v1';
 function guardarSenales(arr) { localStorage.setItem(CLAVE_SEN, JSON.stringify(arr.slice(0, 30))); }
@@ -127,6 +138,7 @@ setInterval(() => {
         `${sim}: sesgo ${e.sesgo} · ATR ${e.atr} · ${e.zonasActivas} zonas · velas ${e.velas.M5}/${e.velas.M15}/${e.velas.H1}`).join('\n');
     }
   }
+  refrescarPanel();   // el gráfico de velas se repinta también cada 2 s
 }, 2000);
 
 function setChip(activo, texto, cls) {
@@ -145,8 +157,25 @@ async function pedirWakeLock() {
   } catch (e) { setChip('chipLock', 'pantalla: error', 'rojo'); }
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && cliente && !lock) pedirWakeLock();
+  if (document.visibilityState !== 'visible') return;
+  if (cliente && !lock) pedirWakeLock();
+  /* Android congela la app y puede matar el WebSocket SIN disparar
+     onclose: al volver, si no hay datos frescos, reconexión inmediata
+     en vez de esperar a que el usuario note el chip muerto */
+  if (cliente && cliente.etapa === 'listo' && Date.now() - ultimoDatoAt > 15000) {
+    log('AVISO', 'al volver a la app no hay datos frescos — reconectando ya');
+    stats.reconexiones++;
+    conectarInternal();
+  }
 });
+/* watchdog en primer plano: sesión 'listo' sin ticks 45 s = socket muerto */
+setInterval(() => {
+  if (cliente && estrategia && cliente.etapa === 'listo' && Date.now() - ultimoDatoAt > 45000) {
+    log('AVISO', '45 s sin ticks con sesión abierta — reconexión forzada');
+    stats.reconexiones++;
+    conectarInternal();
+  }
+}, 15000);
 
 /* ---------- notificaciones locales (sin push, no requiere servidor) ---------- */
 async function notificar(titulo, cuerpo) {
@@ -168,8 +197,11 @@ const MAX_FALLOS_LOGIN = 3;
 let cliente = null, estrategia = null, paradoManual = false, espera = 3000;
 let fallosLogin = 0;
 let velasDBok = false, idxGuardado = 0;
+let tReconexion = null;                     // UN solo temporizador de reconexión
+let ultimoDatoAt = 0;                       // llegada del último tick (watchdog)
 const firmasGuardadas = new Map();          // "SIM|TF" -> t de la última vela escrita
 const SEG_TF = { M5: 300, M15: 900, H1: 3600 };   // segundos por vela
+const LIMITE_SIMBOLOS = 40;                 // tope al suscribir con el filtro genérico
 
 function crearCliente() {
   const simbolos = ui.cSimbolos.value.split(',').map((s) => s.trim()).filter(Boolean);
@@ -180,6 +212,7 @@ function crearCliente() {
     filtro: simbolos.length
       ? new RegExp('^(' + simbolos.map((s) => s.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|') + ')$', 'i')
       : undefined,
+    limite: simbolos.length ? 0 : LIMITE_SIMBOLOS,   // sin lista explícita: tope por memoria
   });
 }
 
@@ -204,16 +237,20 @@ function cablear() {
       return;                   // sin reintento automático con credenciales inválidas
     }
     stats.reconexiones++;       // solo reconexiones automáticas de transporte
+    clearTimeout(tReconexion);  // UN solo temporizador aunque 'cerrar' llegue por varias vías
     log('AVISO', `reconectando en ${(espera / 1000).toFixed(0)} s…`);
-    setTimeout(() => { espera = Math.min(30000, espera * 1.5); conectarInternal(); }, espera);
+    tReconexion = setTimeout(() => { espera = Math.min(30000, espera * 1.5); conectarInternal(); }, espera);
   });
   cliente.on('listo', ({ simbolos }) => {
     fallosLogin = 0;            // login correcto: el contador de rechazos se limpia
     espera = 3000;
+    ultimoDatoAt = Date.now();
     setChip('chipCon', 'listo · ' + simbolos.length + ' símbolos', 'verde');
+    llenarSelectorSimbolos(simbolos);
     sembrar(simbolos);
   });
   cliente.on('tick', (t) => {
+    ultimoDatoAt = Date.now();
     stats.ticksUltimoMin.push(t.t);
     estrategia.onTick(t.simbolo, t.bid, t.ask, t.t);
   });
@@ -238,6 +275,7 @@ function cablear() {
 
 /* arranque interno reutilizado por la reconexión con backoff */
 function conectarInternal() {
+  clearTimeout(tReconexion); tReconexion = null;   // nunca dos reconexiones en carrera
   if (cliente) { try { cliente.cerrar(); } catch (e) { } }
   paradoManual = false;
   ui.bDes.disabled = false;   // hay sesión (o reconexión en curso) que se puede detener
@@ -264,6 +302,7 @@ function conectar() {
 
 function desconectar() {
   paradoManual = true;
+  clearTimeout(tReconexion); tReconexion = null;
   ui.bDes.disabled = true;
   if (cliente) { cliente.cerrar(); cliente = null; }
   estrategia = null;
@@ -289,6 +328,20 @@ function unirVelas(viejas, nuevas) {
   return [...m.values()].sort((a, b) => a.t - b.t);
 }
 
+/* El servidor manda la vela EN FORMACIÓN al final: si entra en la
+   siembra queda congelada (mismo t que el cierre real la bloquea) y
+   se persiste corrupta. Se recorta aquí, ANTES de unir y guardar. */
+function quitarVelaFormando(velas, tf) {
+  const arr = velas.slice();
+  const seg = (SEG_TF[tf] || 0) * 1000;
+  while (arr.length && arr[arr.length - 1].t + seg > Date.now()) arr.pop();
+  return arr;
+}
+
+/* el motor puede apagarse a mitad de siembra: TODO acceso a cliente/
+   estrategia tras un await pasa por aquí (antes daba TypeError mudo) */
+const sembraViva = () => !!(cliente && estrategia && cliente.etapa === 'listo');
+
 async function sembrar(simbolos) {
   try {
     await abrirVelasDB();
@@ -303,10 +356,11 @@ async function sembrar(simbolos) {
 
   for (const s of simbolos) {
     for (const [tf, dias] of PLAN) {
-      if (!cliente || cliente.etapa !== 'listo') return; // se cerró a mitad
+      if (!sembraViva()) return; // se cerró a mitad
 
       let previas = [];
       if (velasDBok) { try { previas = await cargarVelas(s, tf); } catch (e) { previas = []; } }
+      if (!sembraViva()) return;
       const ultima = previas.length ? previas[previas.length - 1].t : 0;
 
       // Caché al día: no hay nada nuevo que pedir, arranca con lo guardado.
@@ -317,14 +371,23 @@ async function sembrar(simbolos) {
 
       // Petición incremental: desde la vela siguiente a la última guardada.
       const desde = ultima ? Math.floor(ultima / 1000) + 1 : 0;
-      const r = await cliente.pedirVelas(s, { tf, dias, desde, timeoutMs: desde ? 4000 : 10000 });
-      let nuevas = r && r.velas.length ? r.velas : [];
+      let r = await cliente.pedirVelas(s, { tf, dias, desde, timeoutMs: desde ? 4000 : 10000 });
+      if (!sembraViva()) return;
+      let nuevas = r && r.velas.length ? quitarVelaFormando(r.velas, tf) : [];
+
+      // Reintento único si la petición incremental volvió vacía
+      if (!nuevas.length && desde) {
+        r = await cliente.pedirVelas(s, { tf, dias, desde, timeoutMs: 6000 });
+        if (!sembraViva()) return;
+        if (r && r.velas.length) nuevas = quitarVelaFormando(r.velas, tf);
+      }
 
       // Relleno hacia atrás si la caché es más corta que el búfer
       // (primera vez, o justo después de ampliar el rango).
       if (previas.length && previas.length < MAX_VELAS_TF[tf]) {
         const r2 = await cliente.pedirVelas(s, { tf, dias });
-        if (r2 && r2.velas.length) nuevas = nuevas.concat(r2.velas);
+        if (!sembraViva()) return;
+        if (r2 && r2.velas.length) nuevas = nuevas.concat(quitarVelaFormando(r2.velas, tf));
         await new Promise((ok) => setTimeout(ok, 350));
       }
 
@@ -345,7 +408,8 @@ async function sembrar(simbolos) {
       await new Promise((r2) => setTimeout(r2, 350)); // espaciado entre peticiones
     }
   }
-  log('INFO', 'sembrado terminado — motor en marcha');
+  if (sembraViva()) log('INFO', 'sembrado terminado — motor en marcha');
+  refrescarPanel();   // primer pintado del gráfico con datos reales
 }
 
 /* ---------- guardado de las velas que cierra el motor ----------
@@ -462,6 +526,59 @@ ui.bInstalar.addEventListener('click', async () => {
   log('INFO', `instalación: ${outcome}`);
   promptInstal = null;
   ui.bInstalar.disabled = true;
+});
+
+/* ---------- panel de velas en <canvas> ---------- */
+const panelVelas = new PanelVelas($('g-canvas'));
+let tfPanel = 'M15';
+
+function llenarSelectorSimbolos(simbolos) {
+  const sel = $('g-simbolo');
+  const previo = sel.value;
+  sel.innerHTML = '';
+  for (const s of simbolos) {
+    const o = document.createElement('option');
+    o.value = s;
+    o.textContent = s;
+    sel.appendChild(o);
+  }
+  if (previo && simbolos.includes(previo)) sel.value = previo;   // conserva la elección
+}
+
+function refrescarPanel() {
+  const sim = $('g-simbolo').value;
+  const info = $('g-info');
+  if (!estrategia || !sim) { info.textContent = '— conecta el motor para ver velas —'; return; }
+  const hist = estrategia.historia(sim);
+  const r = estrategia.resumen()[sim];
+  panelVelas.actualizar({
+    velas: hist ? hist[tfPanel] : [],
+    formando: estrategia.velaActual(sim, tfPanel),
+    zonas: estrategia.zonasDe(sim),
+    senales: tablaSenales.filter((x) => x.simbolo === sim).slice(0, 6),
+  });
+  info.textContent = r
+    ? `${sim} · ${tfPanel} · sesgo ${r.sesgo} · ATR ${r.atr} · ${r.zonasActivas} zonas activas · ${r.velas[tfPanel] || 0} velas`
+    : `${sim} · ${tfPanel} · sembrando historial…`;
+}
+
+for (const [id, tf] of [['g-tf-m5', 'M5'], ['g-tf-m15', 'M15'], ['g-tf-h1', 'H1']]) {
+  $(id).addEventListener('click', () => {
+    tfPanel = tf;
+    for (const otro of ['g-tf-m5', 'g-tf-m15', 'g-tf-h1']) $(otro).classList.toggle('activo', otro === id);
+    refrescarPanel();
+  });
+}
+$('g-simbolo').addEventListener('change', refrescarPanel);
+
+/* ---------- borrado de datos locales (credenciales + señales + velas) ---------- */
+$('b-borrar').addEventListener('click', async () => {
+  if (!confirm('¿Borrar de este dispositivo las credenciales guardadas, las señales y todo el histórico de velas?')) return;
+  try { await borrarTodasLasVelas(); } catch (e) { /* la BD quizá ni existía */ }
+  localStorage.removeItem(CLAVE_CONF); sessionStorage.removeItem(CLAVE_CONF);
+  localStorage.removeItem(CLAVE_SEN);
+  log('INFO', 'datos locales borrados — recargando…');
+  setTimeout(() => location.reload(), 400);
 });
 
 /* ---------- service worker ---------- */

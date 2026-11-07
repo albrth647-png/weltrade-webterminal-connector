@@ -74,6 +74,10 @@ export class ClienteMT5Web {
     this.pass = opts.pass;
     this.host = opts.host || 'mt5.demo.weltrade.org';
     this.filtro = opts.filtro || /^(FX Vol|SFX Vol|Step|Boom|Crash|Range|FlipX|Drift)/i;
+    /* tope de símbolos a suscribir cuando el filtro es el genérico
+       (catálogo vacío → cientos de sintéticos agotan la memoria del
+       teléfono). 0 = sin tope (se usa cuando el usuario da su lista). */
+    this.limite = opts.limite || 0;
     this.nombres = {};        // id -> nombre
     this.ids = {};            // nombre -> id
     this.ws = null;
@@ -82,6 +86,10 @@ export class ClienteMT5Web {
     this._ping = null;
     this._listeners = {};
     this._pendientes11 = new Map();
+    this._cola11 = null;              // serialización de peticiones de velas
+    this._silencio11Hasta = 0;        // ventana anti-respuesta-tardía tras un timeout
+    this._cerrada = false;            // guard de idempotencia de _cerrar
+    this._ultimoRX = 0;               // último byte recibido (detector de socket medio-abierto)
   }
 
   on(ev, fn) { (this._listeners[ev] ??= []).push(fn); return this; }
@@ -103,10 +111,28 @@ export class ClienteMT5Web {
 
   conectar() {
     this.etapa = 'conectando';
+    this._cerrada = false;                    // nueva sesión: el guard de cierre se reinicia
     const ws = new WebSocket(`wss://${this.host}/terminal`);
     this.ws = ws;
     ws.binaryType = 'arraybuffer';
-    this._ping = setInterval(() => this._enviar(51), 8000);
+    this._ultimoRX = Date.now();
+    this._ping = setInterval(() => {
+      // socket medio-abierto (Android congeló la app, NAT cayó…): el server
+      // no responde a 3 pulsos seguidos → cerrar ya, el backoff reconecta
+      if (Date.now() - this._ultimoRX > 25000) {
+        this._log('sin respuesta del servidor durante 25 s — cerrando para reconectar');
+        this.cerrar();
+        return;
+      }
+      this._enviar(51);
+    }, 8000);
+    // sesión incompleta 20 s (TCP colgado a medio abrir): cortar y reintentar
+    this._tAbrir = setTimeout(() => {
+      if (this.etapa !== 'listo') {
+        this._log('sin sesión completa tras 20 s — cerrando para reintentar');
+        this.cerrar();
+      }
+    }, 20000);
 
     ws.onopen = async () => { this.etapa = 'handshake'; await this._enviar(0, new Uint8Array(64)); };
     ws.onclose = () => this._cerrar();
@@ -114,8 +140,14 @@ export class ClienteMT5Web {
     ws.onmessage = (ev) => this._onMensaje(new Uint8Array(ev.data));
   }
 
+  /* Idempotente: cierra-abierto + ws.close() + onclose tardío producían
+     DOS eventos 'cerrar' por sesión y el backoff de la UI agendaba DOS
+     reconexiones (bucle de reconexiones cada 3 s). UNA emisión como sea. */
   _cerrar() {
+    if (this._cerrada) return;
+    this._cerrada = true;
     clearInterval(this._ping);
+    clearTimeout(this._tAbrir);
     this.etapa = 'apagado';
     for (const [, p] of this._pendientes11) { clearTimeout(p.timer); if (p.debounce) clearTimeout(p.debounce); p.resolver(null); }
     this._pendientes11.clear();
@@ -125,6 +157,7 @@ export class ClienteMT5Web {
   cerrar() { try { this.ws && this.ws.close(); } catch (e) { } this._cerrar(); }
 
   async _onMensaje(buf) {
+    this._ultimoRX = Date.now();   // hay señal vital aunque el frame no se entienda
     let p;
     try {
       const pt = await aesDec(this.clave, buf.subarray(8));
@@ -167,7 +200,11 @@ export class ClienteMT5Web {
         if (nombre) { this.nombres[id] = nombre; this.ids[nombre] = id; }
       }
       this.etapa = 'listo';
-      const objetivos = Object.values(this.nombres).filter((nn) => this.filtro.test(nn));
+      let objetivos = Object.values(this.nombres).filter((nn) => this.filtro.test(nn));
+      if (this.limite > 0 && objetivos.length > this.limite) {
+        this._log(`filtro genérico dio ${objetivos.length} símbolos — se suscriben los primeros ${this.limite} (memoria del teléfono)`);
+        objetivos = objetivos.slice(0, this.limite);
+      }
       // suscripción de ticks: [u32 n][u32 id × n]
       const sub = new Uint8Array(4 + objetivos.length * 4);
       w32(sub, 0, objetivos.length);
@@ -189,7 +226,10 @@ export class ClienteMT5Web {
       }
       return;
     }
-    // Velas (respuesta a cmd 11, posiblemente partida en varios frames)
+    // Velas (respuesta a cmd 11, posiblemente partida en varios frames).
+    // La respuesta NO identifica el símbolo: va al único pendiente en
+    // curso (las peticiones están serializadas); respuestas tardías de
+    // una petición caducada se descartan por la ventana de silencio.
     if (p.cmd === 11 && this._pendientes11.size) {
       const vela = this._parseVelas(p.body);
       for (const [nombre, pend] of this._pendientes11) {
@@ -212,8 +252,21 @@ export class ClienteMT5Web {
      packet[68..70)  = u16 PERIOD_* de MT5 en little-endian (H1=0x4001, M15=15, M5=5...)
      packet[70..78)  = [u32 desde][u32 hasta] (época en segundos)
      Respuesta: registros de 48 B [u32 t][f64 o][f64 h][f64 l][f64 c][u32 vol][u32 flags] */
-  pedirVelas(nombre, { tf = 'H1', dias = 90, desde = 0, hasta = 0, timeoutMs = 10000 } = {}) {
+  /* Serializadas: cmd 11 no trae el símbolo en la respuesta y el reparto
+     va a TODOS los pendientes — dos peticiones solapadas corromperían el
+     histórico con velas del símbolo equivocado. Una cada vez, con una
+     ventana de silencio tras cada timeout para tragar respuestas tardías. */
+  pedirVelas(nombre, opts = {}) {
     if (this.etapa !== 'listo' || !this.ids[nombre]) return Promise.resolve(null);
+    this._cola11 = (this._cola11 || Promise.resolve())
+      .then(() => this._pedirVelasUna(nombre, opts), () => this._pedirVelasUna(nombre, opts));
+    return this._cola11;
+  }
+
+  async _pedirVelasUna(nombre, { tf = 'H1', dias = 90, desde = 0, hasta = 0, timeoutMs = 10000 } = {}) {
+    const guardia = Math.max(0, this._silencio11Hasta - Date.now());
+    if (guardia) await new Promise((ok) => setTimeout(ok, guardia));
+    if (this.etapa !== 'listo' || !this.ids[nombre]) return null;
     const ENUM_TF = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 0x4001, H4: 0x4004, D1: 0x4018 };
     const periodo = ENUM_TF[tf] ?? 0x4001;
     const packet = new Uint8Array(78);
@@ -227,9 +280,11 @@ export class ClienteMT5Web {
       const timer = setTimeout(() => {
         const pend = this._pendientes11.get(nombre);
         if (pend && pend.debounce) clearTimeout(pend.debounce);
-        this._pendientes11.delete(nombre); resolver(null);
+        this._pendientes11.delete(nombre);
+        this._silencio11Hasta = Date.now() + 1500;   // traga respuestas tardías del timeout
+        resolver(null);
       }, timeoutMs);
-      this._pendientes11.set(nombre, { resolver, timer });
+      this._pendientes11.set(nombre, { resolver, timer, iniciado: Date.now() });
       this._enviarRaw(packet);
     });
   }

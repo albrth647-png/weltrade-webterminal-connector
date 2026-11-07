@@ -32,7 +32,7 @@ Opciones gratis, en orden de sencillez:
 2. **Cualquier hosting estático gratis** (Netlify / Cloudflare Pages /
    Vercel): arrastra la carpeta `pwa/` y listo.
 
-> Publica la carpeta completa tal cual (los 11 archivos) y en una ruta
+> Publica la carpeta completa tal cual (los 12 archivos) y en una ruta
 > estable: esa URL se convierte en tu app para siempre.
 
 ### Paso 2 — Instálala como app
@@ -48,8 +48,8 @@ Dentro de la app, en **Configuración**:
 
 - **Cuenta** y **Contraseña**: de tu cuenta demo/real de Weltrade.
 - **Servidor**: `mt5.demo.weltrade.org` (demo) o `mt5.real.weltrade.org`.
-- **Símbolos**: vacío = todos los sintéticos (FX/SFX Vol, Boom, Crash…),
-  o lista (`FX Vol 20, FX Vol 60, FX Vol 99`).
+- **Símbolos**: vacío = sintéticos (FX/SFX Vol, Boom, Crash…) **con tope de
+  40 por memoria del teléfono**, o tu lista exacta (`FX Vol 20, FX Vol 60, FX Vol 99`).
 - **Score mínimo**: 60 por defecto (el mismo del backtest de 3.341 señales).
 - **Telegram**: token de tu bot + tu chat ID (crea el bot con @BotFather
   y consigue tu ID con @userinfobot). Valídalo con «Probar Telegram».
@@ -62,30 +62,55 @@ suscripción estén montados; entonces el motor siembra el historial
 
 ```
 pwa/
-├── index.html    → interfaz: estado, señales, control, config, log
-├── app.js        → cables: conexión, siembra, reconexión, Wake Lock,
-│                   Telegram, notificaciones, instalación
-├── proto.js      → protocolo revertido sobre WebCrypto (cmd 0/28/6/7/8/11/51)
-├── motor.js      → estrategia Raptor-like idéntica a motor-senales/
-│                   estrategia.js + señales a Telegram (Bot API)
-├── velas_db.js   → histórico de velas en IndexedDB (persistente)
-├── sw.js         → cache de la app-shell auto-versionada por hash SHA-256
-│                   (cambia cualquier fichero → caché nueva sola) y manejo
-│                   de pulsos de notificación
-├── manifest.json → manifiesto PWA (iconos, standalone, portrait)
+├── index.html       → interfaz: estado, señales, gráfico, control, config, log
+├── app.js           → cables: conexión, siembra, reconexión, Wake Lock,
+│                      Telegram, notificaciones, instalación, panel de velas
+├── proto.js         → protocolo revertido sobre WebCrypto (cmd 0/28/6/7/8/11/51)
+├── motor.js         → estrategia Raptor-like idéntica a motor-senales/
+│                      estrategia.js + señales a Telegram (Bot API)
+├── velas_db.js      → histórico de velas en IndexedDB (persistente)
+├── velas_canvas.js  → gráfico de velas en <canvas>: zoom, paneo, zonas y
+│                      señales dibujadas, vela en formación en vivo
+├── sw.js            → cache de la app-shell auto-versionada por hash SHA-256
+│                      (cambia cualquier fichero → caché nueva sola) y manejo
+│                      de pulsos de notificación
+├── manifest.json    → manifiesto PWA (iconos, standalone, portrait)
 └── icono-192/512/mascara .png, icono.svg
 ```
 
 ## Histórico de velas: persistente e incremental
 
 La primera conexión descarga por símbolo **H1 45 días, M15 22 días y M5 11
-días** (≈ 300 KB) y lo guarda en **IndexedDB**, no en `localStorage` (su
+días** (≈ 300–400 KB) y lo guarda en **IndexedDB**, no en `localStorage` (su
 límite de ~5 MB no da ni para un tercio del histórico). El motor retiene
-1000 velas H1, 2000 M15 y 3000 M5. En cada reconexión solo se piden las
-velas **posteriores a la última guardada**; el rango completo se vuelve a
-pedir únicamente si la caché es más corta que ese búfer (primera vez o si
-acabas de ampliar el rango). Las velas que cierra el motor también se
-guardan, un símbolo cada 3 s, para no reescribir todo el histórico.
+**6.000 velas por símbolo** (1.000 H1 + 2.000 M15 + 3.000 M5). En cada
+reconexión solo se piden las velas **posteriores a la última guardada**; el
+rango completo se vuelve a pedir únicamente si la caché es más corta que ese
+búfer. Las velas que cierra el motor también se guardan, un símbolo cada 3 s.
+La vela **en formación** nunca se guarda: se reconstruye de ticks en vivo.
+
+En Configuración tienes **«Borrar datos locales»**: vacía de una vez
+credenciales guardadas, señales e histórico de velas del dispositivo.
+
+## Gráfico de velas (canvas)
+
+El panel «Gráfico de velas» dibuja sin librerías ni red extra: velas del
+símbolo y marco elegidos (M5/M15/H1), zonas activas del motor (S verde /
+R roja con su fuerza), marcadores ▲▼ de las señales recientes con su score,
+último precio en vivo y la **vela en formación** semitransparente.
+Arrastra para viajar al pasado, pellizca (o rueda en PC) para zoom, y
+doble toque para volver al presente.
+
+## Estabilidad: qué pasa si se corta todo
+
+| Situación | Qué hace la app |
+|---|---|
+| Caída de red | cierra, backoff 3 s → 30 s, reconecta sola |
+| Login rechazado | máx. 3 intentos y para: corrige Configuración y pulsa Conectar |
+| Socket medio-abierto (Android congela la app) | 25 s sin respuesta del servidor → cierre y backoff |
+| Vuelves a la app sin datos frescos | reconexión inmediata |
+| 45 s sin ticks con sesión «listo» | reconexión forzada (watchdog) |
+| TCP colgado a medio abrir | sin sesión completa en 20 s → corta y reintenta |
 
 ## Los 3 límites honestos
 
@@ -123,6 +148,5 @@ teléfono con «Instalar app».
   de tu dominio de Pages (la terminal oficial manda uno desde su web).
   Si lo rechazara, hay rutas alternativas: proxy WS propio o WebView con
   el WebTerminal embebido.
-- Panel de velas M15 en `<canvas>` para ver las zonas dibujadas en vivo.
 - Cmd 17 (cuenta): balance/equity en la cabecera cuando se revierta
   por completo la estructura del registro.

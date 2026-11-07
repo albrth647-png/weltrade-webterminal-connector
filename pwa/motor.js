@@ -61,7 +61,13 @@ export class Estrategia extends Emisor {
   /* ---------- semilla de historia (velas del servidor) ---------- */
   setHistoria(simbolo, tf, velas) {
     const e = this._estado(simbolo);
-    e.velas[tf] = velas.slice(-this.cfg.maxVelas[tf]);
+    const arr = velas.slice(-this.cfg.maxVelas[tf]);
+    /* El servidor incluye al final la vela EN FORMACIÓN. Sin quitarla
+       queda congelada para siempre: bloquea el cierre real (mismo t en
+       onVelaCerrada) y envenena TN y pivotes con un cierre parcial. */
+    const seg = TFS[tf] || 0;
+    while (arr.length && seg && arr[arr.length - 1].t + seg * 1000 > Date.now()) arr.pop();
+    e.velas[tf] = arr;
     const ult = e.velas[tf][e.velas[tf].length - 1];
     if (ult && ult.t > e.ahora) e.ahora = ult.t;   // reloj de mercado (no de pared)
     if (tf === 'H1') this._recalcSesgo(simbolo);
@@ -84,11 +90,24 @@ export class Estrategia extends Emisor {
     }
   }
 
-  /* ---------- lectura del histórico vivo (para persistirlo) ---------- */
+  /* ---------- lectura del histórico vivo (para persistirlo y para el gráfico) ---------- */
   historia(simbolo) {
     const e = this.s.get(simbolo);
     if (!e) return null;
     return { M5: e.velas.M5, M15: e.velas.M15, H1: e.velas.H1 };
+  }
+
+  /* Zonas activas de un símbolo (vista serializable) — para el panel canvas. */
+  zonasDe(simbolo) {
+    const e = this.s.get(simbolo);
+    if (!e) return [];
+    return e.zonas.filter((z) => z.estado === 'activa').map((z) => this._vista(z));
+  }
+
+  /* Vela en formación (agregada de ticks) de un símbolo/TF — para el panel canvas. */
+  velaActual(simbolo, tf) {
+    const e = this.s.get(simbolo);
+    return e ? (e.cur[tf] || null) : null;
   }
 
   /* ---------- entrada de ticks: agrega velas por TF ---------- */
@@ -280,28 +299,50 @@ export class Estrategia extends Emisor {
 }
 
 /* ---------- Telegram directo desde el navegador (Bot API, CORS OK) ---------- */
-export async function enviarTelegram(token, chat, texto) {
+const escTg = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+/* Con timeout (10 s) y 1 reintento: sin AbortController un Telegram
+   colgado dejaba la señal en el limbo y el log sin explicación.
+   429 respeta retry_after del Bot API (máx 5 s). */
+export async function enviarTelegram(token, chat, texto, { intentos = 2 } = {}) {
   if (!token || !chat) return { ok: false, motivo: 'telegram no configurado' };
-  try {
-    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chat, text: texto, parse_mode: 'HTML', disable_web_page_preview: true }),
-    });
-    const j = await r.json().catch(() => ({}));
-    return { ok: r.ok && j.ok !== false, respuesta: j };
-  } catch (e) {
-    return { ok: false, error: e.message };
+  for (let i = 1; i <= intentos; i++) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 10000);
+      const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chat, text: texto, parse_mode: 'HTML', disable_web_page_preview: true }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.ok !== false) return { ok: true, respuesta: j };
+      const retry429 = r.status === 429 ? Math.min(5, Number(j?.parameters?.retry_after) || 1) : 0;
+      if (i < intentos && (retry429 || r.status >= 500)) {
+        await new Promise((ok) => setTimeout(ok, retry429 * 1000 || 2000));
+        continue;
+      }
+      return { ok: false, respuesta: j, motivo: `HTTP ${r.status}${j?.description ? ' — ' + j.description : ''}` };
+    } catch (e) {
+      if (i < intentos) { await new Promise((ok) => setTimeout(ok, 2000)); continue; }
+      return { ok: false, error: e.name === 'AbortError' ? 'timeout 10 s' : e.message };
+    }
   }
 }
 
 export function formatearSenal(s) {
   const icono = s.lado === 'COMPRA' ? '🟢' : '🔴';
+  const hora = new Date(s.horaPared || s.t || Date.now()).toISOString().slice(0, 16).replace('T', ' ');
+  /* escHTML: el símbolo viene del catálogo del servidor — si trajera <, >
+     o &, el parse_mode HTML devolvía 400 y la señal NUNCA llegaba */
   return [
-    `${icono} <b>${s.lado} · ${s.simbolo}</b>  (score ${s.score})`,
-    `Fase: <b>${s.fase}</b> · Sesgo H1: ${s.sesgo}`,
-    `Nivel (${s.tfZona}): ${s.nivel} · Precio: ${s.precio}`,
+    `${icono} <b>${escTg(s.lado)} · ${escTg(s.simbolo)}</b>  (score ${s.score})`,
+    `Fase: <b>${escTg(s.fase)}</b> · Sesgo H1: ${escTg(s.sesgo)}`,
+    `Nivel (${escTg(s.tfZona)}): ${s.nivel} · Precio: ${s.precio}`,
     `SL: ${s.sl} · TP: ${s.tp}`,
-    `${s.motivo}`,
+    `${escTg(s.motivo)}`,
+    `Hora: ${hora} UTC`,
   ].join('\n');
 }

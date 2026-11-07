@@ -15,6 +15,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const MAX_BYTES = 8 * 1024 * 1024;
 /* Autenticación opcional para /estado y la API de estrategia.
@@ -44,6 +45,14 @@ const _json = (res, codigo, obj) => {
   res.end(JSON.stringify(obj, null, 2));
 };
 
+/* comparación en tiempo constante: un `!==` normal filtraba el token
+   carácter a carácter por timing en un despliegue público */
+const _tokenValido = (dado, esperado) => {
+  const a = Buffer.from(String(dado || ''));
+  const b = Buffer.from(String(esperado || ''));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
 function crearServidor(getEstado, gestor, port = Number(process.env.PORT || 3000)) {
   if (!ESTADO_TOKEN) {
     console.log('[servidor] AVISO: ESTADO_TOKEN no definido — /estado y la API de estrategia quedan abiertas (solo seguro en localhost).');
@@ -56,7 +65,7 @@ function crearServidor(getEstado, gestor, port = Number(process.env.PORT || 3000
       /* todo lo que expone estado o muta la estrategia exige token (si hay) */
       if (ESTADO_TOKEN && ruta !== '/salud' && ruta !== '/' && ruta !== '/index.html') {
         const dado = req.headers['x-estado-token'] || q.get('token') || '';
-        if (dado !== ESTADO_TOKEN) return _json(res, 401, { ok: false, error: 'token ausente o incorrecto (ESTADO_TOKEN)' });
+        if (!_tokenValido(dado, ESTADO_TOKEN)) return _json(res, 401, { ok: false, error: 'token ausente o incorrecto (ESTADO_TOKEN)' });
       }
       if (req.method === 'GET' && (ruta === '/' || ruta === '/index.html')) {
         const html = fs.readFileSync(path.join(__dirname, 'ui.html'));

@@ -14,7 +14,7 @@
    el clásico olvido que dejaba a los instalados con código viejo).
    ============================================================ */
 const PREFIJO = 'wt-pwa-';
-const SHELL = ['./', './index.html', './app.js', './proto.js', './motor.js', './velas_db.js', './radio.js', './manifest.json', './icono.svg', './icono-192.png'];
+const SHELL = ['./', './index.html', './app.js', './proto.js', './motor.js', './velas_db.js', './velas_canvas.js', './radio.js', './manifest.json', './icono.svg', './icono-192.png', './icono-512.png'];
 let CACHE = null;   // se fija en install: 'wt-pwa-<hash>'
 
 async function _hashShell() {

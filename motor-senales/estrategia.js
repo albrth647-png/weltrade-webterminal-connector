@@ -44,7 +44,13 @@ class Estrategia extends EventEmitter {
   setHistoria(simbolo, tf, velas) {
     const e = this._estado(simbolo);
     const max = this.cfg.maxVelas[tf] || 300;
-    e.velas[tf] = velas.slice(-max);
+    const arr = velas.slice(-max);
+    /* El servidor incluye al final la vela EN FORMACIÓN. Sin quitarla
+       queda congelada para siempre (mismo t bloquea el cierre real) y
+       envenena TN y pivotes con un cierre parcial. */
+    const seg = TFS[tf] || 0;
+    while (arr.length && seg && arr[arr.length - 1].t + seg * 1000 > Date.now()) arr.pop();
+    e.velas[tf] = arr;
     const ult = e.velas[tf][e.velas[tf].length - 1];
     if (ult && ult.t > e.ahora) e.ahora = ult.t;   // reloj de mercado (no de pared)
     if (tf === this.cfg.tfSesgo) this._recalcSesgo(simbolo);
@@ -61,6 +67,15 @@ class Estrategia extends EventEmitter {
         }
       }
     }
+  }
+
+  /* ---------- lectura del histórico vivo (para re-sembrado incremental) ---------- */
+  historia(simbolo) {
+    const e = this.s.get(simbolo);
+    if (!e) return null;
+    const velas = {};
+    for (const tf of Object.keys(TFS)) velas[tf] = e.velas[tf];
+    return velas;
   }
 
   /* ---------- entrada de ticks: agrega velas por TF ---------- */
