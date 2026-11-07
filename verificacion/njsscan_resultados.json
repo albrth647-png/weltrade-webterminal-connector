@@ -1,0 +1,133 @@
+{
+  "errors": [],
+  "njsscan_version": "1.0.2",
+  "nodejs": {
+    "generic_error_disclosure": {
+      "files": [
+        {
+          "file_path": "pwa/motor.js",
+          "match_lines": [
+            27,
+            27
+          ],
+          "match_position": [
+            54,
+            99
+          ],
+          "match_string": "  emit(ev, d) { for (const f of this._l[ev] || []) { try { f(d); } catch (e) { console.error(e); } } }"
+        },
+        {
+          "file_path": "pwa/proto.js",
+          "match_lines": [
+            86,
+            86
+          ],
+          "match_position": [
+            62,
+            107
+          ],
+          "match_string": "  emit(ev, d) { for (const f of this._listeners[ev] || []) { try { f(d); } catch (e) { console.error(e); } } }"
+        }
+      ],
+      "metadata": {
+        "cwe": "CWE-209: Generation of Error Message Containing Sensitive Information",
+        "description": "Error messages with stack traces may expose sensitive information about the application.",
+        "owasp-web": "A3: Sensitive Data Exposure",
+        "severity": "WARNING"
+      }
+    },
+    "node_insecure_random_generator": {
+      "files": [
+        {
+          "file_path": "motor-senales/test_importador.js",
+          "match_lines": [
+            101,
+            101
+          ],
+          "match_position": [
+            43,
+            56
+          ],
+          "match_string": "  Buffer.alloc(1024).map(() => Math.floor(Math.random() * 256)),"
+        },
+        {
+          "file_path": "motor-senales/test_importador.js",
+          "match_lines": [
+            144,
+            144
+          ],
+          "match_position": [
+            43,
+            56
+          ],
+          "match_string": "  Buffer.alloc(1024).map(() => Math.floor(Math.random() * 256)),"
+        }
+      ],
+      "metadata": {
+        "cwe": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm",
+        "description": "crypto.pseudoRandomBytes()/Math.random() is a cryptographically weak random number generator.",
+        "owasp-web": "A9: Using Components with Known Vulnerabilities",
+        "severity": "WARNING"
+      }
+    },
+    "node_sha1": {
+      "files": [
+        {
+          "file_path": "conector/conector.js",
+          "match_lines": [
+            44,
+            44
+          ],
+          "match_position": [
+            14,
+            39
+          ],
+          "match_string": "  const fp = crypto.createHash('sha1').update(`termux;${LOGIN};${Date.now()}`).digest().subarray(0, 16);"
+        },
+        {
+          "file_path": "motor-senales/cliente_mt5.js",
+          "match_lines": [
+            43,
+            43
+          ],
+          "match_position": [
+            14,
+            39
+          ],
+          "match_string": "  const fp = crypto.createHash('sha1').update(`termux;${login};${Date.now()}`).digest().subarray(0, 16);"
+        },
+        {
+          "file_path": "scripts_re/wt_bisect.js",
+          "match_lines": [
+            62,
+            62
+          ],
+          "match_position": [
+            3,
+            28
+          ],
+          "match_string": "  crypto.createHash('sha1').update('x').digest().subarray(0, 16).copy(lg2, loginBody.indexOf(fpCapt));"
+        },
+        {
+          "file_path": "scripts_re/wt_connector.js",
+          "match_lines": [
+            52,
+            52
+          ],
+          "match_position": [
+            3,
+            28
+          ],
+          "match_string": "  crypto.createHash('sha1').update(`termux;${login}`).digest().subarray(0, 16).copy(b, OFF_FP);"
+        }
+      ],
+      "metadata": {
+        "cwe": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm",
+        "description": "SHA1 is a a weak hash which is known to have collision. Use a strong hashing function.",
+        "owasp-web": "A9: Using Components with Known Vulnerabilities",
+        "severity": "WARNING"
+      }
+    }
+  },
+  "templates": {}
+}
