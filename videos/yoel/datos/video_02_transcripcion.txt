@@ -1,0 +1,26 @@
+=== TROZO 1 (0-29s) — reconstruido ===
+NOTA: el ASR detectó el tramo 0-10s en chino (error de idioma); el contenido se
+recuperó traduciendo esa salida y combinándola con las re-transcripciones parciales
+(10-15s, 15-29s) que sí salieron en español.
+
+«Vamos a analizar la estrategia número dos. La dos y la tres no aplican para
+temporalidades menores, escúchenme bien. Pero para operar esta, tú tienes que
+esperar a que ella rompa este nivel, porque es una estrategia número dos. Fue
+creada para temporalidades mayores, de M15 por arriba. ¿A qué me refiero? Aquí
+tengo en M15 esta dos o esta... aquí buscamos un...»
+
+=== TROZO 2 (29-58s) — ASR directo ===
+«¿Cómo lo hacemos? Nos vamos a temporales menores y buscamos una entrada. Si se
+dan cuenta, las EMAs se mantienen, ya no tienes que agregarlas tú, se mantienen
+las EMAs. Si están viendo esto, tú pones tu línea de tendencia y buscas una
+oportunidad con el uno-dos-tres, como tú quieras tomar la entrada. Aquí tiene un
+cierre del ciclo, si me entiendes. O sea, todo esto lo puedes ir... Bien, esta es
+la número dos, y lo mismo para la número tres, cuando el precio toque, por qué...»
+
+=== TROZO 3 (58-87s) — ASR directo ===
+«...que no salió el tres porque el precio nunca superó. Tiene en cuenta todas esas
+cosas, pero siempre vas a estar operando a favor de la tendencia. Siempre. Sígueme:
+va a estar operando a favor de la tendencia, listo. Por ejemplo, si yo regreso acá
+al escáner y vino para esta, aquí tú tienes que ver cómo se mueve: me gusta, no me
+gusta, está muy alejada, no lo tomo. Llegas aquí, estás en tu límite, te dice ya no
+puedes pasar de aquí, estás en tu límite, no te puedes pasar ahí, listo.»

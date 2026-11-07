@@ -9,6 +9,12 @@ para que nada se pierda si el entorno de trabajo se reinicia.
 | # | Archivo | Duración | Documento de análisis |
 |---|---|---|---|
 | 01 | `video_01_original.mp4` | 61 s | `docs/estrategia/video_01_analisis.md` |
+| 02 | `video_02_original.mp4` | 87 s | `docs/estrategia/video_02_analisis.md` |
+
+## Hallazgos acumulados (resumen vivo)
+
+- **Video 01 (M1):** jugada intradía — rompimiento → mueve su línea → 1ª entrada «alerta patrón» → 2ª entrada «uno dos tres» → 3ª entrada «engaño o bailar» → stacking. MT4/5 móvil, TF M1.
+- **Video 02 (M15+→M5):** existen **estrategias numeradas**; la nº2 y nº3 son para **M15 hacia arriba**. Flujo: **escáner RAPTOR SCANNER v1.2.x (matriz TF × celdas 1/2/3 azules-rojas) → señal M15 → bajar a M5 → línea de tendencia + 1-2-3 → SIEMPRE a favor de la tendencia → filtros de distancia («muy alejada, no lo tomo») y de límite.** Motor del indicador: «RaptorScanEngine»; EMA30 confirmada; universo «14 pairs».
 
 ## Estructura
 
