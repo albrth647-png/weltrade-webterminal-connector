@@ -1,6 +1,6 @@
 # Auditoría de `raptor_strategy.py` contra los vídeos de Yoel
 
-**Fecha:** 2026-11-08
+**Fecha:** 2026-11-08 · **ACTUALIZACIÓN:** las 8 correcciones de §4 ya están aplicadas y verificadas → ver `correcciones_aplicadas_v2.md`
 **Objeto:** verificar si la implementación `raptor_strategy.py` (subida por el propietario
 del repo) corresponde a lo que Yoel (Sifotrader) realmente dice y muestra en sus vídeos.
 **Método:** contraste línea a línea contra las transcripciones completas de los 3 vídeos,

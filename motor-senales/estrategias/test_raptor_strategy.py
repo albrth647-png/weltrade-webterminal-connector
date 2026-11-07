@@ -1,8 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-Prueba funcional de raptor_strategy.py (subido por el usuario) con escenarios
-sintéticos controlados, para auditar su comportamiento real contra los vídeos
-de Yoel. No modifica el archivo original (se importa desde upload/).
+Pruebas funcionales de raptor_strategy.py (v2) con escenarios sintéticos
+controlados. Verifican el comportamiento REAL del código contra las reglas
+de los vídeos de Yoel y contra las correcciones de la auditoría
+(docs/estrategia/auditoria_raptor_strategy.md §4).
+
+Escenarios:
+  A  secuencia completa 2 -> 2B -> 1R -> 2R -> 2RB          (original)
+  B  tercer toque 2 -> 3 -> 3B                              (original)
+  C  caducidad de la quiebra (>6 velas)                     (original)
+  D  superación de EMA50 -> engaño                          (original)
+  E  simetría espejo alcista/bajista                        (original)
+  F  robustez (plana, corta, scan_last)                     (original)
+  G  gating por TF (M1/M5/M15 + emit_touches_from)          (corrección 1)
+  H  filtro de distancia «muy alejada, no lo tomo»          (corrección 3)
+  I  reset por salida huérfana («se salió, volvió»)         (corrección 4)
+  J  cuerpo de la quiebra solo exigible a la 1              (corrección 6)
+  K  etiqueta 1RB del engaño reseteado                      (corrección 2)
+  L  el engaño no se re-dispara sin nueva salida            (hallazgo 2)
+  M  capa multi-TF «tendencia comprobada»                   (corrección 8)
+  N  gramática del catálogo + TIMEFRAMES + scan_all         (corrección 1)
 """
 import sys
 import numpy as np
@@ -64,6 +81,24 @@ class B:
         hi = e30 + 0.05 * atr
         lo = min(op, cl) - 0.10 * atr
         self.add(op, hi, lo, cl)
+
+    def vela_toque_alejada(self):
+        """Rechazo ENORME: roza la EMA30 con el high pero cierra a 3.5 ATR
+        («muy alejada, no lo tomo», v2) — debe ser rechazada con max_dist_atr=2."""
+        e30, atr = self.e30(), self.atr()
+        op = min(self.c[-1], e30 - 0.30 * atr)
+        cl = e30 - 3.5 * atr
+        hi = e30 + 0.05 * atr
+        lo = cl - 0.10 * atr
+        self.add(op, hi, lo, cl)
+
+    def vela_bajista_suave(self, step_mult=0.4):
+        """Roja suave: el cierre baja step_mult ATR pero la mecha inferior (0.6 ATR)
+        deja el cierre POR ENCIMA del mínimo previo (no dispara engaño)."""
+        atr = self.atr()
+        op = self.c[-1]
+        cl = op - step_mult * atr
+        self.add(op, op + 0.05 * atr, cl - 0.6 * atr, cl)
 
     def vela_rally(self, objetivo="subir", step_mult=1.1):
         """Vela verde de impulso; su high queda a >0.10 ATR de la EMA30 si aún no la toca."""
@@ -216,7 +251,7 @@ def resumen(sig):
 
 def main():
     print("=" * 78)
-    print("PRUEBA FUNCIONAL DE raptor_strategy.py — escenarios sintéticos controlados")
+    print("PRUEBA FUNCIONAL DE raptor_strategy.py v2 — escenarios sintéticos controlados")
     print("=" * 78)
 
     print("\n[A] Secuencia completa bajista: 2 -> 2B -> 1R -> 2R -> 2RB")
@@ -282,6 +317,152 @@ def main():
           len(ult) == len(ult_todo) and len(ult) > 0 and
           list(ult.pattern) == list(ult_todo.pattern),
           f"scan_last={list(ult.pattern)} vs scan={list(ult_todo.pattern)}")
+
+    # ----------------------- escenarios nuevos (v2) -----------------------
+
+    print("\n[G] Gating por TF: «la 2 y la 3… de M15 por arriba» (v2); entradas")
+    print("    en todas las TF (v3 las demuestra en M1; v2: «buscamos una entrada»)")
+    sig_m1 = rs.scan(dfA, "M1")
+    sig_m5 = rs.scan(dfA, "M5")
+    sig_m15 = rs.scan(dfA, "M15")
+    pats_m1, pats_m5, pats_m15 = (list(s.pattern) for s in (sig_m1, sig_m5, sig_m15))
+    print("   M1 :", pats_m1, "| M5:", pats_m5, "| M15:", pats_m15)
+    check("en M1 solo ENTRADAS (2B, 1R, 2RB), sin avisos",
+          pats_m1 == ["2B", "1R", "2RB"], str(pats_m1))
+    check("en M5 igual que M1 (M15 es el umbral)", pats_m5 == pats_m1, str(pats_m5))
+    check("en M15 el catálogo completo (avisos + entradas)",
+          pats_m15 == ["2", "2B", "1R", "2R", "2RB"], str(pats_m15))
+    sig_m1b = rs.scan(dfA, "M1", rs.Params(emit_touches_from="M1"))
+    check("emit_touches_from='M1' libera los avisos en M1",
+          list(sig_m1b.pattern) == pats_m15, str(list(sig_m1b.pattern)))
+    try:
+        rs.scan(dfA, "W1")
+        check("TF desconocido lanza ValueError", False, "no lanzó")
+    except ValueError:
+        check("TF desconocido lanza ValueError", True)
+
+    print("\n[H] Filtro de distancia: «está muy alejada, no lo tomo» (v2)")
+    bh = B(); bh.fase_bajista()
+    bh.acercar()
+    bh.vela_toque()                      # toque 1 normal
+    bh.vela_caida(); bh.vela_caida()
+    for _ in range(3):
+        bh.vela_rally(step_mult=1.0)
+    bh.vela_toque_alejada()              # tocaría como toque 2 pero cierra a 3.5 ATR
+    rech = rs.scan(bh.df(), "M15", rs.Params())            # max_dist_atr=2.0
+    check("con max_dist_atr=2.0 el toque alejado se RECHAZA (sin '2')",
+          list(rech.pattern) == [], str(list(rech.pattern)))
+    acept = rs.scan(bh.df(), "M15", rs.Params(max_dist_atr=None))
+    check("con el filtro desactivado el mismo toque SÍ cuenta ('2')",
+          list(acept.pattern) == ["2"], str(list(acept.pattern)))
+
+    print("\n[I] Reset por salida huérfana: «se salió, volvió, lo hizo de nuevo»")
+    print("    (salida sobre EMA50 SIN engaño + retorno = ciclo cumplido -> R)")
+    bi = B(); bi.fase_bajista()
+    bi.acercar()
+    bi.vela_toque()                      # toque 1 (silencioso)
+    assert subir_hasta_exceder_e50(bi), "no superó EMA50"     # salida (sin engaño)
+    guard = 0
+    while bi.c[-1] > bi.e30() - 0.4 * bi.atr():               # regreso suave; la vela
+        bi.vela_bajista_suave()                           # que cruza la zona = toque 1'
+        guard += 1
+        assert guard < 60, "regreso infinito"
+    bi.vela_bajista_suave(); bi.vela_bajista_suave()          # extensión bajo el toque 1'
+    for _ in range(3):
+        bi.vela_rally(step_mult=1.0)                          # vuelve a la EMA30
+    bi.vela_toque()                       # toque 2 del nuevo ciclo -> "2R"
+    con_reset = rs.scan(bi.df(), "M15", rs.Params())
+    sin_reset = rs.scan(bi.df(), "M15", rs.Params(reset_on_abandoned_exit=False))
+    print("   con reset:", list(con_reset.pattern),
+          "| sin reset:", list(sin_reset.pattern))
+    check("la secuencia tras la salida huérfana sale con R ('2R')",
+          list(con_reset.pattern) == ["2R"], str(list(con_reset.pattern)))
+    check("con reset_on_abandoned_exit=False sale '2' (comportamiento v1)",
+          list(sin_reset.pattern) == ["2"], str(list(sin_reset.pattern)))
+
+    print("\n[J] Cuerpo de la quiebra: «con cuerpo» confirmado SOLO para la 1;")
+    print("    2B/3B = «quebró» (sin exigencia de cuerpo) — corrección 6")
+    def build_j():
+        bj = B(); bj.fase_bajista()
+        secuencia_2_touches(bj)          # "2" con pend
+        ref = bj.ref_low_8()
+        atr0 = bj.atr()
+        guard = 0
+        while bj.c[-1] > ref - 0.10 * atr0 and guard < 25:    # caidas SIN cuerpo válido
+            bj.vela_caida(step_mult=0.25)                      # cuerpo 0.25 ATR < 0.3
+            guard += 1
+        assert bj.c[-1] < ref, "la caida fina no cruzó el ref_low"
+        return bj.df()
+    sin_cuerpo = rs.scan(build_j(), "M15", rs.Params(max_bars_to_break=25))
+    con_cuerpo = rs.scan(build_j(), "M15",
+                         rs.Params(max_bars_to_break=25, require_body_on_break=True))
+    print("   defecto:", list(sin_cuerpo.pattern),
+          "| exigiendo cuerpo:", list(con_cuerpo.pattern))
+    check("por defecto la quiebra sin cuerpo SÍ emite 2B («quebró»)",
+          list(sin_cuerpo.pattern) == ["2", "2B"], str(list(sin_cuerpo.pattern)))
+    check("con require_body_on_break=True la misma quiebra NO emite",
+          list(con_cuerpo.pattern) == ["2"], str(list(con_cuerpo.pattern)))
+
+    print("\n[K] Etiqueta del engaño reseteado: 1R (defecto) vs 1RB (gráfico v3)")
+    pats_k = list(rs.scan(dfA, "M15", rs.Params(fake_reset_label="1RB")).pattern)
+    print("   con fake_reset_label='1RB':", pats_k)
+    check("el engaño reseteado se etiqueta 1RB y el resto no cambia",
+          pats_k == ["2", "2B", "1RB", "2R", "2RB"], str(pats_k))
+
+    print("\n[L] El engaño NO se re-dispara sin una nueva salida sobre la EMA50")
+    bl = B(); bl.fase_bajista()
+    secuencia_2_touches(bl)              # "2"
+    assert subir_hasta_exceder_e50(bl), "no superó EMA50"
+    ref = float(np.min(bl.l[-6:]))
+    bl.vela_engano(ref)                  # -> "1"
+    for _ in range(3):
+        bl.vela_caida()                  # más quiebras con cuerpo, SIN nueva salida
+    sig_l = rs.scan(bl.df(), "M15")
+    pats_l = list(sig_l.pattern)
+    print("   señales:", pats_l)
+    check("solo '2' y '1' (el segundo quiebre no re-dispara el engaño)",
+          pats_l == ["2", "1"], str(pats_l))
+
+    print("\n[M] Capa multi-TF «tendencia comprobada» (corrección 8)")
+    dfAlcista = pd.DataFrame({"open": -dfA.open, "high": -dfA.low,
+                              "low": -dfA.high, "close": -dfA.close}, index=dfA.index)
+    dfs = {"M15": dfA, "H1": dfA, "H4": dfA}          # todo bajista alineado
+    trends = rs.multi_tf_trend(dfs)
+    print("   tendencias:", trends)
+    check("multi_tf_trend detecta SELL alineado en las 3 TF",
+          all(v == "SELL" for v in trends.values()), str(trends))
+    kept = rs.filter_trend_confirmed(rs.scan(dfA, "M15"), dfs)
+    check("con H1+H4 vendedoras pasan todas las señales SELL",
+          len(kept) == len(rs.scan(dfA, "M15")) and all(kept.direction == "SELL"))
+    kept_buy = rs.filter_trend_confirmed(rs.scan(dfAlcista, "M15"), dfs)
+    check("las señales BUY quedan fuera (tendencia comprobada = SELL)",
+          len(kept_buy) == 0)
+    dfs_mix = {"M15": dfA, "H1": dfA, "H4": dfAlcista}  # en desacuerdo
+    check("TFs en desacuerdo -> sin confirmación (0 señales)",
+          len(rs.filter_trend_confirmed(rs.scan(dfA, "M15"), dfs_mix)) == 0)
+    flatdf = pd.DataFrame({"open": np.full(300, 10.0), "high": np.full(300, 10.01),
+                           "low": np.full(300, 9.99), "close": np.full(300, 10.0)},
+                          index=pd.date_range("2026-01-01", periods=300, freq="1min"))
+    check("sin alineación multi-TF el filtro es inerte (pasa todo)",
+          len(rs.filter_trend_confirmed(rs.scan(dfA, "M15"),
+                                        {"H1": flatdf, "H4": flatdf})) ==
+          len(rs.scan(dfA, "M15")))
+
+    print("\n[N] Gramática del catálogo + TIMEFRAMES + scan_all con M1")
+    todo = rs.scan_all({"M1": dfA, "M15": dfA})
+    check("TIMEFRAMES empieza por M1 (el TF estrella de Yoel)",
+          rs.TIMEFRAMES[0] == "M1", str(rs.TIMEFRAMES))
+    check("scan_all acepta M1 y etiqueta el TF",
+          set(todo.timeframe) == {"M1", "M15"} and len(todo) > 0)
+    pats_all = set(todo.pattern)
+    check("todo patrón pertenece al catálogo de los vídeos",
+          pats_all <= rs.TOUCH_PATTERNS | rs.ENTRY_PATTERNS, str(pats_all))
+    check("kind coherente con el patrón (touch vs entry)",
+          all((r.kind == "touch") == (r.pattern in rs.TOUCH_PATTERNS)
+              for r in todo.itertuples()))
+    check("la dirección del patrón 1/1R/1RB y las B es siempre entry",
+          all(r.kind == "entry" for r in todo.itertuples()
+              if r.pattern in ("1", "1R", "1RB", "2B", "2RB", "3B", "3RB")))
 
     print("\n" + "=" * 78)
     if FALLOS:

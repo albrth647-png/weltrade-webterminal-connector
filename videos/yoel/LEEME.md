@@ -45,3 +45,16 @@ para que nada se pierda si el entorno de trabajo se reinicia.
 1. **Audio → texto:** extracción WAV 16 kHz mono, división en trozos ≤30 s (límite del ASR), transcripción y unión.
 2. **Pantalla:** extracción de frames (1 cada 4 s) y análisis visual individual de CADA frame con IA de visión, inyectando el fragmento de transcripción correspondiente a ese momento como contexto.
 3. **Síntesis:** documento en `docs/estrategia/` con transcripción, hallazgos visuales, glosario de términos y secuencia de la estrategia.
+
+## Estado del motor (2026-11-08) — v2 corregida y backtesteada
+
+- `motor-senales/estrategias/raptor_strategy.py` **v2**: las 8 correcciones de la
+  auditoría aplicadas (M1 + gating de avisos desde M15, filtro «muy alejada»,
+  reset por salida huérfana, cuerpo solo en la 1, etiqueta 1R/1RB parametrizada,
+  capa multi-TF «tendencia comprobada», docstring con citas).
+- **34/34 comprobaciones** unitarias (A-N) en `test_raptor_strategy.py`.
+- **Backtesting con datos reales** (BTCUSDT 1m, Binance, 10 días): 331 señales,
+  **0 violaciones** de las 12 reglas verificadas de forma independiente
+  (`backtest_raptor.py`; informe en `docs/backtest/`).
+- Documentación: `docs/estrategia/auditoria_raptor_strategy.md` (auditoría) y
+  `docs/estrategia/correcciones_aplicadas_v2.md` (qué se corrigió y cómo se probó).
