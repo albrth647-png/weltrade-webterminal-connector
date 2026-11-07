@@ -13,8 +13,9 @@ para que nada se pierda si el entorno de trabajo se reinicia.
 
 ## Hallazgos acumulados (resumen vivo)
 
-- **Video 01 (M1):** jugada intradía — rompimiento → mueve su línea → 1ª entrada «alerta patrón» → 2ª entrada «uno dos tres» → 3ª entrada «engaño o bailar» → stacking. MT4/5 móvil, TF M1.
+- **Video 01 (M1):** jugada intradía — rompimiento → mueve su línea → 1ª entrada «alerta patrón» → 2ª entrada «uno dos tres» → 3ª entrada «engaño o bailar» → stacking. MT4/5 móvil, TF M1. Sin marcadores de señal en pantalla (gráfico limpio).
 - **Video 02 (M15+→M5):** existen **estrategias numeradas**; la nº2 y nº3 son para **M15 hacia arriba**. Flujo: **escáner RAPTOR SCANNER v1.2.x (matriz TF × celdas 1/2/3 azules-rojas) → señal M15 → bajar a M5 → línea de tendencia + 1-2-3 → SIEMPRE a favor de la tendencia → filtros de distancia («muy alejada, no lo tomo») y de límite.** Motor del indicador: «RaptorScanEngine»; EMA30 confirmada; universo «14 pairs».
+- **Marcadores de señal (re-análisis dedicado):** en el gráfico las señales son **etiquetas numéricas azul/rojo ancladas a las EMAs** (no puntos circulares): **azul = alcista** («1», «1R», «2» en/rebote de la EMA blanca o amarilla), **rojo = bajista** («2», «1R», «2R» al cruzar bajo la EMA). Los colores coinciden con las celdas del escáner. Número = estrategia; sufijo «R» = variante sin identificar (hipótesis: retest/rebote). Línea horizontal roja = «el límite».
 
 ## Estructura
 

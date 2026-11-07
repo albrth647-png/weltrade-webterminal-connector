@@ -66,6 +66,39 @@ Los frames 01, 02, 03, 05, 06, 07, 08, 09, 19, 20, 21 y 22 muestran la ventana *
 | ~70 s | M2 leída en f_18 (posible, o M5 por lectura borrosa) | Sigue buscando la entrada |
 | ~72–87 s | Escáner Raptor de nuevo | Revisa la matriz: «me gusta / no me gusta / muy alejada / límite» |
 
+## 3.5 Marcadores de señal en el gráfico (re-análisis dedicado a puntos rojos/azules)
+
+Re-análisis posterior (a petición del propietario del repo) centrado específicamente en
+**buscar los puntos/etiquetas de señal y su relación con las EMAs**, sobre 22 frames
+recortados al área del gráfico y ampliados 2×. Datos crudos: `videos/yoel/datos/video_02_analisis_puntos.json`.
+
+**Resultado: las señales NO se marcan con puntos circulares, sino con ETIQUETAS NUMÉRICAS
+de color azul y rojo ancladas a las líneas EMA:**
+
+| Marcador visto | Color | Posición exacta observada | Contexto del precio |
+|---|---|---|---|
+| «1» | **Azul** | Sobre/junto a la **EMA blanca** (rápida), debajo de velas verdes | Rebote alcista en la EMA blanca tras un retroceso (pullback) |
+| «1R» | **Azul** | Justo encima de la **EMA blanca**, junto a velas verdes | Pleno rompimiento/impulso alcista |
+| «2» | **Azul** | Encima de la **EMA amarilla** (y debajo de la blanca), en velas de retroceso | Retroceso en tendencia alcista |
+| «2» | **Azul** (recuadro) | Sobre la **línea escalonada amarilla** | Zona vacía bajo el precio (etiqueta u objeto) |
+| «2» | **Rojo/rosa translúcido** ×2 | Dónde las velas rojas **cruzan por debajo de la EMA blanca**; y junto a una vela roja en retroceso | Señal bajista en la EMA |
+| Línea horizontal roja fina | Rojo | Nivel de precio arriba del gráfico | **El «límite»** del audio («ya no puedes pasar de aquí») |
+| Zona rectangular azul translúcida | Azul | Mitad izquierda, a la altura del canal | Zona de demanda/soporte |
+| Zona rectangular rosada | Rosa/rojo | Sobre las velas rojas grandes tras el máximo | Zona bajista |
+
+**Los colores coinciden con el escáner** (se ven en el mismo video, t=76–84 s):
+celdas **azules «1» y «2»** en las filas M10/M15 y celdas **rojas «1R»/«2R»/«2»** en las
+filas H2/H3. Es decir: **azul = alcista, rojo = bajista, número = estrategia que dispara,
+sufijo «R» = variante aún sin identificar** (hipótesis: «Retest/Rebote»).
+
+**EMAs confirmadas en el gráfico:** tres curvas — **blanca** (rápida, pegada al precio),
+**amarilla** (media) y una tercera más lenta; tooltip con **«EMA30»**. Los marcadores
+aparecen en el punto donde el precio **toca o rebota la EMA**, no sobre cualquier vela.
+
+**Operaciones reales visibles** (píldoras de posición): «BUY 0.86 $53.34» y
+«SELL 0.24 -$279.32» — confirma que el video muestra operaciones tanto alcistas (marcador
+azul) como bajistas (marcador rojo).
+
 ## 4. Lo que este video añade a la estrategia (hallazgos principales)
 
 1. **El sistema tiene ESTRATEGIAS NUMERADAS (1, 2, 3…).** El video 1 mostraba la jugada de M1 (probablemente la nº1). La **nº2 y la nº3 son para M15 hacia arriba** — explícito: «no aplican para temporalidades menores».

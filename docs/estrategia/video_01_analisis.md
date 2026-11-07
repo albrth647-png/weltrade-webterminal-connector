@@ -48,6 +48,18 @@
 
 **Momento de dibujo:** en f_02 (~6 s) el botón de línea de tendencia está seleccionado y se ve el nodo de arrastre → está **moviendo la línea en vivo** justo cuando el audio dice «mi línea la muevo hacia este lugar de acá».
 
+### 3.1 Re-análisis dedicado a los puntos de señal (rojos/azules)
+
+Re-análisis posterior sobre 15 frames recortados al área del gráfico y ampliados 2×,
+buscando específicamente los marcadores de señal. **Resultado: en este video NO hay
+puntos/etiquetas de señal rojos ni azules** — el modelo lo confirma explícitamente en los
+15 frames (no inventa). Lo que sí hay: zonas cian, líneas escalonadas amarilla/blanca,
+líneas de tendencia blancas, un **círculo blanco dibujado a mano con el texto «OK»**
+alrededor de las velas del rebote en la zona cian, y stickers del video (corazón, pulgar).
+Las señales marcadas con etiquetas numeradas rojas/azules sobre las EMAs aparecen en el
+**video 02** (ver su sección 3.5) — este video usa el gráfico limpio de MT móvil para
+explicar la jugada a mano.
+
 ## 4. Glosario de la terminología de Yoel (lo que hay que aprender de memoria)
 
 Según sus propias palabras, **esto es lo que hay que aprender de memoria**:
