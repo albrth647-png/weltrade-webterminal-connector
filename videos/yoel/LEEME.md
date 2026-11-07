@@ -26,6 +26,11 @@ para que nada se pierda si el entorno de trabajo se reinicia.
   - **Scanner**: matriz TF×Flip1-5/FX Volatility/Step 200-500-800 con celdas azul/rojo (número=código de estrategia), celdas naranjas = señal activa, **lista lateral de señales con horas**.
   - **Panel «Ordena»**: CONFIANZA %, PROBABILIDAD, **LOTAJE SUGERIDO**, POTENCIA GANANCIA/RIESGO, botones COMPRA/VENDER — el Raptor sugiere riesgo y ejecuta.
   - Propuesta del título: «con 100 dólares → 1,000 en un día» operando 2B/2RB/1 en M1 sintético.
+- **Auditoría de la primera implementación (2026-11-08):** `docs/estrategia/auditoria_raptor_strategy.md`
+  contrasta `motor-senales/estrategias/raptor_strategy.py` con los 3 vídeos. Veredicto:
+  gramática 1/2/3+R+B fiel al vídeo 03 y 13/13 pruebas funcionales OK; faltan `1RB`, M1,
+  la regla M15+ para 2/3 y los filtros de distancia/límite/multi-TF; la pendiente de la
+  EMA100, el cierre bajo EMA30 y el cuerpo en todas las B son decisiones propias (no vídeo).
 
 ## Estructura
 
