@@ -71,8 +71,13 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
 
+/* Si el servidor tiene ESTADO_TOKEN, abre el panel con ?token=...:
+   todas las llamadas a la API lo arrastran automáticamente. */
+const _TOKEN = new URLSearchParams(location.search).get('token') || '';
+const api = (ruta) => _TOKEN ? ruta + (ruta.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(_TOKEN) : ruta;
+
 async function refrescar() {
-  const r = await fetch('/estrategia');
+  const r = await fetch(api('/estrategia'));
   const { doc, fuente } = await r.json();
   $('activa').innerHTML = `
     <div class="fila"><span class="k">Nombre</span><span class="v"><b>${esc(doc.meta.nombre)}</b> (v${doc.meta.version})</span></div>
@@ -90,7 +95,7 @@ $('btn-importar').onclick = async () => {
   if (!f) { $('estado-import').innerHTML = '<span class="mal">elige un archivo primero</span>'; return; }
   $('estado-import').textContent = 'procesando…';
   const buf = await f.arrayBuffer();
-  const r = await fetch('/importar?nombre=' + encodeURIComponent(f.name), { method: 'POST', body: buf });
+  const r = await fetch(api('/importar?nombre=' + encodeURIComponent(f.name)), { method: 'POST', body: buf });
   const inf = await r.json();
   pintarInforme(inf);
 };
@@ -115,7 +120,7 @@ function pintarInforme(inf) {
 $('btn-validar').onclick = async () => {
   try {
     const doc = JSON.parse($('borrador').value);
-    const r = await (await fetch('/estrategia/validar', { method: 'POST', body: JSON.stringify(doc) })).json();
+    const r = await (await fetch(api('/estrategia/validar'), { method: 'POST', body: JSON.stringify(doc) })).json();
     $('estado-borrador').innerHTML = r.ok ? '<span class="okm">✓ documento válido — listo para activar</span>' : '<span class="mal">✗ ' + r.errores.map(esc).join(' · ') + '</span>';
   } catch (e) { $('estado-borrador').innerHTML = '<span class="mal">JSON inválido: ' + esc(e.message) + '</span>'; }
 };
@@ -123,7 +128,7 @@ $('btn-validar').onclick = async () => {
 $('btn-activar').onclick = async () => {
   try {
     const doc = JSON.parse($('borrador').value);
-    const r = await (await fetch('/estrategia/activar', { method: 'POST', body: JSON.stringify(doc) })).json();
+    const r = await (await fetch(api('/estrategia/activar'), { method: 'POST', body: JSON.stringify(doc) })).json();
     if (r.ok) {
       $('estado-borrador').innerHTML = '<span class="okm">✓ estrategia activada — el motor está re-sembrando historial</span>';
       refrescar();
@@ -134,7 +139,7 @@ $('btn-activar').onclick = async () => {
 };
 
 $('btn-descargar').onclick = async () => {
-  const { doc } = await (await fetch('/estrategia')).json();
+  const { doc } = await (await fetch(api('/estrategia'))).json();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
   a.download = (doc.meta.nombre || 'estrategia').replace(/\W+/g, '_') + '.json';
@@ -142,7 +147,7 @@ $('btn-descargar').onclick = async () => {
 };
 
 $('btn-restaurar').onclick = async () => {
-  await fetch('/estrategia/restaurar', { method: 'POST' });
+  await fetch(api('/estrategia/restaurar'), { method: 'POST' });
   refrescar();
 };
 

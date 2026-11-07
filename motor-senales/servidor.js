@@ -17,6 +17,13 @@ const fs = require('fs');
 const path = require('path');
 
 const MAX_BYTES = 8 * 1024 * 1024;
+/* Autenticación opcional para /estado y la API de estrategia.
+   Sin ESTADO_TOKEN todo queda abierto (correcto en localhost).
+   Si expones esto en Internet (Render...), define ESTADO_TOKEN:
+     curl -H "x-estado-token: $ESTADO_TOKEN" https://.../estado
+   o con query:  /estado?token=...   (el panel web lo pasa con ?token=)
+   /salud queda SIEMPRE abierto para los pingers (no expone estado). */
+const ESTADO_TOKEN = process.env.ESTADO_TOKEN || '';
 
 function _cuerpo(req) {
   return new Promise((resolver, rechazar) => {
@@ -38,9 +45,19 @@ const _json = (res, codigo, obj) => {
 };
 
 function crearServidor(getEstado, gestor, port = Number(process.env.PORT || 3000)) {
+  if (!ESTADO_TOKEN) {
+    console.log('[servidor] AVISO: ESTADO_TOKEN no definido — /estado y la API de estrategia quedan abiertas (solo seguro en localhost).');
+  }
   const srv = http.createServer(async (req, res) => {
-    const ruta = req.url.split('?')[0];
+    const url = new URL(req.url, 'http://x');
+    const ruta = url.pathname;
+    const q = url.searchParams;
     try {
+      /* todo lo que expone estado o muta la estrategia exige token (si hay) */
+      if (ESTADO_TOKEN && ruta !== '/salud' && ruta !== '/' && ruta !== '/index.html') {
+        const dado = req.headers['x-estado-token'] || q.get('token') || '';
+        if (dado !== ESTADO_TOKEN) return _json(res, 401, { ok: false, error: 'token ausente o incorrecto (ESTADO_TOKEN)' });
+      }
       if (req.method === 'GET' && (ruta === '/' || ruta === '/index.html')) {
         const html = fs.readFileSync(path.join(__dirname, 'ui.html'));
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -54,7 +71,6 @@ function crearServidor(getEstado, gestor, port = Number(process.env.PORT || 3000
       if (req.method === 'GET' && ruta === '/estrategia') return _json(res, 200, gestor.actual());
 
       if (req.method === 'POST' && ruta === '/importar') {
-        const q = new URL(req.url, 'http://x').searchParams;
         const nombre = q.get('nombre') || 'documento';
         const buf = await _cuerpo(req);
         return _json(res, 200, gestor.importar(nombre, buf));

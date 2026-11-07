@@ -56,6 +56,10 @@ function emit(obj) {
   else console.log(`[${new Date().toISOString()}] ${obj.tipo} ${obj.simbolo || ''} ${obj.bid !== undefined ? 'bid=' + obj.bid : ''} ${obj.ask !== undefined ? 'ask=' + obj.ask : ''} ${obj.msg || ''}`);
 }
 
+/* login rechazado = estado terminal: el bucle principal NO reintenta
+   (evita martillear el servidor y arriesgar bloqueo de cuenta) */
+let credencialesRechazadas = false;
+
 // ---------- sesión completa (se resuelve al cerrar) ----------
 function sesion() {
   return new Promise((resolve) => {
@@ -78,12 +82,23 @@ function sesion() {
 
       if (p.cmd === 0 && stage === 'handshake') {
         key = p.body.subarray(66, 98);
+        if (key.length !== 32) {
+          // sin este guard createCipheriv lanzaba dentro de un try silencioso
+          emit({ tipo: 'error', msg: `handshake inválido: clave de sesión de ${key.length} B (esperados 32) — cerrando` });
+          ws.close();
+          return;
+        }
         send(28, buildLoginBody());
         stage = 'login';
         return;
       }
       if (p.cmd === 28 && stage === 'login') {
-        if (p.dd !== 0) { emit({ tipo: 'error', msg: `login rechazado (dd=${p.dd}) — revisa cuenta/contraseña/servidor` }); ws.close(); return; }
+        if (p.dd !== 0) {
+          credencialesRechazadas = true;
+          emit({ tipo: 'error', msg: `login rechazado (dd=${p.dd}) — revisa cuenta/contraseña/servidor` });
+          ws.close();
+          return;
+        }
         emit({ tipo: 'info', msg: 'login aceptado, pidiendo catalogo...' });
         send(3, Buffer.alloc(0)); send(9, Buffer.alloc(0)); send(6, Buffer.alloc(0));
         stage = 'catalogo';
@@ -142,6 +157,10 @@ function sesion() {
   emit({ tipo: 'info', msg: `conector iniciado (cuenta ${LOGIN} @ ${HOST})` });
   for (;;) {
     try { await sesion(); } catch (e) { emit({ tipo: 'error', msg: e.message }); }
+    if (credencialesRechazadas) {
+      emit({ tipo: 'error', msg: 'credenciales rechazadas: NO se reintenta (evita bloqueos). Corrige .env y relanza.' });
+      process.exit(1);
+    }
     emit({ tipo: 'info', msg: 'reconectando en 3s...' });
     await new Promise((r) => setTimeout(r, 3000));
   }

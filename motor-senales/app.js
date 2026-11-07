@@ -147,11 +147,20 @@ cliente.on('cerrar', () => {
 })();
 
 // ---------- bucle de reconexión ----------
+/* Un login rechazado NO es una caída de red: no se reintenta en bucle
+   (evita martillear el servidor y arriesgar bloqueo de cuenta).
+   Estado terminal: corrige .env y reinicia el proceso. */
+let credRechazadas = false;
 let espera = 3000;
 function arrancar() {
   cliente.conectar();
 }
+cliente.on('login_rechazado', ({ dd }) => {
+  credRechazadas = true;
+  log('ERROR', `login rechazado (dd=${dd}) — credenciales o servidor inválidos. SIN reconexión automática: corrige .env y reinicia.`);
+});
 cliente.on('cerrar', () => {
+  if (credRechazadas) { log('AVISO', 'parado: credenciales rechazadas (sin reintento automático)'); return; }
   setTimeout(() => { espera = Math.min(30000, espera * 1.5); arrancar(); }, espera);
 });
 

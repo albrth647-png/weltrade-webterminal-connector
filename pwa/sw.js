@@ -6,20 +6,46 @@
    1) cache de la app-shell para arrancar instantáneo y offline
       (la conexión real es WSS en vivo: los ticks NO se cachean)
    2) mostrar notificaciones mientras la app está abierta
+
+   La caché se VERSIONA SOLA: el nombre deriva del hash SHA-256 del
+   contenido REAL de la shell, así que cualquier cambio en cualquier
+   fichero produce una caché nueva y borra la anterior en activate.
+   Nunca hay que incrementar versiones a mano (antes: 'wt-pwa-vN',
+   el clásico olvido que dejaba a los instalados con código viejo).
    ============================================================ */
-const CACHE = 'wt-pwa-v3';
+const PREFIJO = 'wt-pwa-';
 const SHELL = ['./', './index.html', './app.js', './proto.js', './motor.js', './velas_db.js', './radio.js', './manifest.json', './icono.svg', './icono-192.png'];
+let CACHE = null;   // se fija en install: 'wt-pwa-<hash>'
+
+async function _hashShell() {
+  const partes = [];
+  for (const url of SHELL) {
+    const r = await fetch(url, { cache: 'reload' });   // ignora la caché HTTP
+    partes.push(new TextEncoder().encode(url), new Uint8Array(await r.arrayBuffer()));
+  }
+  const plano = new Uint8Array(partes.reduce((n, p) => n + p.length, 0));
+  let off = 0;
+  for (const p of partes) { plano.set(p, off); off += p.length; }
+  const hex = [...new Uint8Array(await crypto.subtle.digest('SHA-256', plano))]
+    .map((b) => b.toString(16).padStart(2, '0')).join('');
+  return PREFIJO + hex.slice(0, 16);
+}
 
 self.addEventListener('install', (ev) => {
-  ev.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  ev.waitUntil((async () => {
+    CACHE = await _hashShell();
+    const c = await caches.open(CACHE);
+    await c.addAll(SHELL);
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (ev) => {
-  ev.waitUntil(
-    caches.keys()
-      .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  ev.waitUntil((async () => {
+    const ks = await caches.keys();
+    await Promise.all(ks.filter((k) => k.startsWith(PREFIJO) && k !== CACHE).map((k) => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (ev) => {
@@ -28,6 +54,7 @@ self.addEventListener('fetch', (ev) => {
   if (url.origin !== location.origin) return;   // api.telegram.org y wss pasan directo
   ev.respondWith(
     caches.match(ev.request).then((hit) => hit || fetch(ev.request).then((r) => {
+      if (!CACHE || !r.ok) return r;            // sin caché lista o respuesta rara: red
       const copia = r.clone();
       caches.open(CACHE).then((c) => c.put(ev.request, copia));
       return r;

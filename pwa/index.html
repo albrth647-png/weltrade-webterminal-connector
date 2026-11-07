@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>WT Motor · Señales Weltrade</title>
   <meta name="theme-color" content="#0d1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="WT Motor">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icono.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icono-192.png">
@@ -44,6 +47,8 @@
     .dato .v { font-size: 18px; font-weight: 600; }
     .dato .k { font-size: 11px; color: var(--apagado); }
     label { display: block; font-size: 12px; color: var(--apagado); margin: 8px 0 3px; }
+    .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--apagado); cursor: pointer; }
+    .check input { width: auto; flex: none; }
     input {
       width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--borde);
       background: var(--bg); color: var(--texto); font-size: 14px;
@@ -160,6 +165,10 @@
         <div><label for="c-tgtoken">Token de Telegram (bot)</label><input id="c-tgtoken" type="password" autocomplete="off" placeholder="123456:ABC..."></div>
         <div><label for="c-tgchat">Chat ID de Telegram</label><input id="c-tgchat" inputmode="numeric" autocomplete="off" placeholder="-100..."></div>
       </div>
+      <label class="check" for="c-recordar">
+        <input id="c-recordar" type="checkbox">
+        Recordar credenciales en este dispositivo (por defecto solo viven durante la sesión)
+      </label>
       <div class="pie">Las velas descargadas se guardan en este teléfono (IndexedDB): al reconectar solo se piden las que faltan.</div>
     </section>
 

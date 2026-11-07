@@ -1,0 +1,7 @@
+{
+  "name": "wt-motor-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PWA de señales Weltrade: protocolo MT5 WebTerminal sobre WebCrypto + motor en el navegador (ES modules). El type:module permite a test_protocolo.mjs importar proto.js en Node y verificar la paridad."
+}

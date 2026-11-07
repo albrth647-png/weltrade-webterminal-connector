@@ -5,7 +5,7 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "test": "node test_estrategia.js && node test_importador.js"
+    "test": "node test_estrategia.js && node test_importador.js && node test_protocolo.mjs"
   },
   "engines": {
     "node": ">=22"

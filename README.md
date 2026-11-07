@@ -33,12 +33,11 @@ terceros**. Solo Node.js (~15 KB de código), pensado para correr en un
 
 | Carpeta | Contenido |
 |---|---|
-| [`conector/`](conector/) | **El producto final**: `conector.js` (protocolo nativo), `instalar.sh` (Termux), `.env.ejemplo`, `LEEME.md` (guía completa + protocolo revertido), muestra de frames reales |
-| `weltrade-conector-termux.zip` | El conector empaquetado en un zip para pasar al teléfono |
-| [`docs/`](docs/) | Guía de instalación y uso de REA + Ghidra (el stack de ingeniería inversa usado) |
+| [`conector/`](conector/) | **El producto final**: `conector.js` (protocolo nativo), `instalar.sh` (Termux, con verificación sha256), `.env.ejemplo`, `LEEME.md` (guía completa + protocolo revertido), muestra de frames reales |
+| [`docs/`](docs/) | Guía de instalación y uso de REA + Ghidra (el stack de ingeniería inversa usado) · [`auditoria_proyecto.md`](docs/auditoria_proyecto.md) — auditoría completa del proyecto y correcciones aplicadas |
 | [`docs/RAPTOR_dossier_intel.md`](docs/RAPTOR_dossier_intel.md) | Dossier de inteligencia: qué es el RAPTOR (EA MT5 de SIFO), su sistema de señales WebScan y el plan de un equivalente propio |
 | [`docs/evidencia_sifo_i18n.json`](docs/evidencia_sifo_i18n.json) | Evidencia cruda: objetos i18n literales extraídos del HTML público de sifotrader.com (raptor, signals/WebScan, planes) |
-| [`motor-senales/`](motor-senales/) | ⭐ Motor de señales (equivalente propio del estilo Raptor): zonas + toques EARLY/MAIN/LATE + TN + sesgo multi-TF, **estrategia como documento externo** con panel web de importación, tests, Telegram y despliegue Render |
+| [`motor-senales/`](motor-senales/) | ⭐ Motor de señales (equivalente propio del estilo Raptor): zonas + toques EARLY/MAIN/LATE + TN + sesgo multi-TF, **estrategia como documento externo** con panel web de importación, tests (estrategia + importador + protocolo), Telegram y despliegue Render |
 | [`backtest_raptor/`](backtest_raptor/) | Backtest con datos reales (1 año × FX Vol 20/60/99): 3.341 señales, WR 45,7%, PF 1,27 — `reporte.md` + `senales.csv` señal a señal |
 | [`scripts_re/`](scripts_re/) | Los 15 scripts con los que se hizo la ingeniería inversa: captura del bundle con REA, decodificación del protocolo, bisect de la clave, verificación del conector, script de Ghidra |
 | [`evidencia/`](evidencia/) | Capturas de la sesión real (login demo OK), logs binarios del protocolo, bundle capturado, sesiones decodificadas, JS del cliente oficial (zip) |
@@ -96,6 +95,24 @@ cd ~/weltrade-conector && node conector.js
 Salida en JSON Lines (o texto con `WT_FORMAT=texto`), un tick por segundo por
 símbolo. Los detalles completos (protocolo, solución de problemas, consumo
 desde otro script) están en [`conector/LEEME.md`](conector/LEEME.md).
+
+## 🔒 Seguridad aplicada (auditoría 2026-11-08)
+
+La auditoría completa (0 hallazgos altos · 6 medios · 10 bajos, en
+[`docs/auditoria_proyecto.md`](docs/auditoria_proyecto.md)) está **corregida**:
+
+- **P0**: paro del reintento infinito con credenciales rechazadas (los 3
+  clientes) y guard de 32 B en la clave de sesión con log y cierre (antes:
+  fallo mudo). La PWA avisa con el chip «credenciales rechazadas (n/3)».
+- **P1**: credenciales de la PWA en `sessionStorage` por defecto (casilla
+  «Recordar» opcional), caché del service worker auto-versionada por hash
+  SHA-256 del contenido (adiós al bump manual `wt-pwa-vN`) y test permanente
+  del protocolo con paridad Node↔PWA (`motor-senales/test_protocolo.mjs`,
+  50 checks, incluido en `npm test`).
+- **P2**: token opcional `ESTADO_TOKEN` en `/estado` y la API de estrategia,
+  huella del login en UTF-8 también en la PWA, contador de reconexiones solo
+  automáticas, metadatos iOS, zip redundante eliminado y verificación sha256
+  en `instalar.sh`.
 
 ## 🔐 Cómo funciona (resumen)
 

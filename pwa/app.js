@@ -21,14 +21,18 @@ const ui = {
   bCon: $('b-conectar'), bDes: $('b-desconectar'), bTestTg: $('b-test-telegram'),
   bTestNotif: $('b-test-notif'), bInstalar: $('b-instalar'), notaOrigen: $('nota-origen'),
   cLogin: $('c-login'), cPass: $('c-pass'), cHost: $('c-host'),
-  cSimbolos: $('c-simbolos'), cScore: $('c-score'),
+  cSimbolos: $('c-simbolos'), cScore: $('c-score'), cRecordar: $('c-recordar'),
   cTgToken: $('c-tgtoken'), cTgChat: $('c-tgchat'),
 };
 
-/* ---------- config persistente ---------- */
+/* ---------- config persistente (segura por defecto) ----------
+   Por defecto las credenciales viven SOLO en sessionStorage (mueren al
+   cerrar la pestaña/app). Solo si marcas «Recordar en este dispositivo»
+   se guardan en localStorage (persistente, menos seguro). */
 const CLAVE_CONF = 'wt_pwa_config_v1';
 function guardarConf() {
-  localStorage.setItem(CLAVE_CONF, JSON.stringify({
+  const recordar = !!(ui.cRecordar && ui.cRecordar.checked);
+  const datos = JSON.stringify({
     login: ui.cLogin.value.trim(),
     pass: ui.cPass.value,
     host: ui.cHost.value.trim(),
@@ -36,11 +40,18 @@ function guardarConf() {
     score: ui.cScore.value.trim(),
     tgToken: ui.cTgToken.value.trim(),
     tgChat: ui.cTgChat.value.trim(),
-  }));
+    recordar,
+  });
+  (recordar ? localStorage : sessionStorage).setItem(CLAVE_CONF, datos);
+  (recordar ? sessionStorage : localStorage).removeItem(CLAVE_CONF);   // nunca en los dos
 }
 function cargarConf() {
   try {
-    const c = JSON.parse(localStorage.getItem(CLAVE_CONF) || '{}');
+    let cruda = sessionStorage.getItem(CLAVE_CONF);
+    let origen = 'sesión';
+    if (!cruda) { cruda = localStorage.getItem(CLAVE_CONF); origen = 'dispositivo'; }
+    if (!cruda) return;
+    const c = JSON.parse(cruda);
     if (c.login) ui.cLogin.value = c.login;
     if (c.pass) ui.cPass.value = c.pass;
     if (c.host) ui.cHost.value = c.host;
@@ -48,6 +59,13 @@ function cargarConf() {
     if (c.score) ui.cScore.value = c.score;
     if (c.tgToken) ui.cTgToken.value = c.tgToken;
     if (c.tgChat) ui.cTgChat.value = c.tgChat;
+    if (ui.cRecordar) ui.cRecordar.checked = !!c.recordar;
+    // migración de versiones antiguas: lo persistido sin «recordar» pasa a sesión
+    if (origen === 'dispositivo' && !c.recordar) {
+      sessionStorage.setItem(CLAVE_CONF, cruda);
+      localStorage.removeItem(CLAVE_CONF);
+      log('AVISO', 'credenciales migradas a sesión (más seguro); marca «Recordar» para persistirlas');
+    }
   } catch (e) { /* config nueva */ }
 }
 cargarConf();
@@ -142,8 +160,13 @@ async function notificar(titulo, cuerpo) {
   } catch (e) { /* silencioso */ }
 }
 
-/* ---------- motor: instancia, cableado y reconexión ---------- */
+/* ---------- motor: instancia, cableado y reconexión ----------
+   El backoff (3 s → 30 s) es SOLO para fallos de transporte. Un login
+   rechazado no se reintenta en bucle: a los 3 intentos se para y se
+   exige acción manual (evita martillear el servidor y bloqueos). */
+const MAX_FALLOS_LOGIN = 3;
 let cliente = null, estrategia = null, paradoManual = false, espera = 3000;
+let fallosLogin = 0;
 let velasDBok = false, idxGuardado = 0;
 const firmasGuardadas = new Map();          // "SIM|TF" -> t de la última vela escrita
 const SEG_TF = { M5: 300, M15: 900, H1: 3600 };   // segundos por vela
@@ -166,15 +189,26 @@ function crearEstrategia() {
 
 function cablear() {
   cliente.on('aviso', (m) => log('INFO', scrub(m)));
+  cliente.on('login_rechazado', ({ dd }) => {
+    fallosLogin++;
+    setChip('chipCon', `credenciales rechazadas (${fallosLogin}/${MAX_FALLOS_LOGIN})`, 'rojo');
+    log('AVISO', `login rechazado (dd=${dd}) — revisa cuenta/contraseña/servidor en Configuración`);
+  });
   cliente.on('cerrar', () => {
     setChip('chipCon', 'cerrada', 'rojo');
-    stats.reconexiones++;
     log('AVISO', 'sesión cerrada');
-    if (paradoManual) return;
+    if (paradoManual) return;   // cierre manual: no cuenta como reconexión
+    if (fallosLogin >= MAX_FALLOS_LOGIN) {
+      setChip('chipCon', 'credenciales rechazadas — corrige y pulsa Conectar', 'rojo');
+      log('AVISO', `paro tras ${fallosLogin} logins rechazados: corrige Configuración y pulsa Conectar`);
+      return;                   // sin reintento automático con credenciales inválidas
+    }
+    stats.reconexiones++;       // solo reconexiones automáticas de transporte
     log('AVISO', `reconectando en ${(espera / 1000).toFixed(0)} s…`);
     setTimeout(() => { espera = Math.min(30000, espera * 1.5); conectarInternal(); }, espera);
   });
   cliente.on('listo', ({ simbolos }) => {
+    fallosLogin = 0;            // login correcto: el contador de rechazos se limpia
     espera = 3000;
     setChip('chipCon', 'listo · ' + simbolos.length + ' símbolos', 'verde');
     sembrar(simbolos);
@@ -222,6 +256,7 @@ function conectar() {
   }
   if (!ui.cLogin.value.trim() || !ui.cPass.value) { log('AVISO', 'falta cuenta o contraseña en Configuración'); return; }
   guardarConf();
+  fallosLogin = 0;   // intento manual: el contador de rechazos se limpia
   stats.ticksUltimoMin.length = 0; stats.senalesHoy = 0; stats.tn = 0; stats.reconexiones = 0;
   ui.senales.querySelectorAll('.senal').forEach((x) => x.remove());
   conectarInternal();

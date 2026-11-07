@@ -16,7 +16,7 @@ mismo:
 | `crypto` (AES-CBC)    | `crypto.subtle` (AES-CBC nativo del SO)  |
 | WebSocket global      | WebSocket nativo                          |
 | `Buffer`              | `DataView` / `Uint8Array`                 |
-| `.env`                | formulario en pantalla + `localStorage`  |
+| `.env`                | formulario en pantalla + `sessionStorage` (o `localStorage` solo si marcas «Recordar») |
 | HTTP `/estado`        | panel visual en la propia app             |
 | consola               | log en pantalla + notificaciones          |
 
@@ -69,8 +69,9 @@ pwa/
 ├── motor.js      → estrategia Raptor-like idéntica a motor-senales/
 │                   estrategia.js + señales a Telegram (Bot API)
 ├── velas_db.js   → histórico de velas en IndexedDB (persistente)
-├── sw.js         → cache de la app-shell (arranque instantáneo) y
-│                   manejo de pulsos de notificación
+├── sw.js         → cache de la app-shell auto-versionada por hash SHA-256
+│                   (cambia cualquier fichero → caché nueva sola) y manejo
+│                   de pulsos de notificación
 ├── manifest.json → manifiesto PWA (iconos, standalone, portrait)
 └── icono-192/512/mascara .png, icono.svg
 ```
@@ -99,9 +100,11 @@ guardan, un símbolo cada 3 s, para no reescribir todo el histórico.
    desde fuera. Tus canales externos son Telegram y las notificaciones
    locales del teléfono.
 3. **Credenciales en el teléfono**: cuenta, contraseña y token de
-   Telegram viven solo en `localStorage` de TU navegador (no hay
-   backend). Aun así: usa un bot dedicado y, si prefieres máxima
-   seguridad, deja Telegram vacío y lee las señales en pantalla.
+   Telegram viven en `sessionStorage` de TU navegador (mueren al cerrar
+   la app) y solo pasan a `localStorage` si marcas explícitamente
+   **«Recordar credenciales en este dispositivo»** (no hay backend).
+   Aun así: usa un bot dedicado y, si prefieres máxima seguridad, deja
+   Telegram vacío y lee las señales en pantalla.
 
 ## Probar antes de instalar (opcional, en PC)
 

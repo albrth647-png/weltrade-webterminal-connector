@@ -218,3 +218,27 @@ Racha perdedora máxima 15–17 y duración mediana 80 min con expectativa 0,144
 ---
 
 *Auditoría realizada con revisión manual + pruebas ejecutadas sobre el repositorio en `main`, 8 commits, sin cambios en el código de producción salvo este informe.*
+
+---
+
+## 9. Correcciones aplicadas (2026-11-08)
+
+Todas las correcciones P0/P1/P2 están implementadas y verificadas (suite completa en verde: `test_estrategia` 16/16 + `test_importador` + `test_protocolo` 50/50; verificación funcional de `/estado` con token 8/8).
+
+| Hallazgo | Corrección aplicada | Ficheros |
+|---|---|---|
+| **M3** clave de sesión sin validar | Guard `length !== 32` con aviso y cierre limpio en los 3 clientes (antes: fallo mudo dentro de un try) | `pwa/proto.js`, `conector/conector.js`, `motor-senales/cliente_mt5.js` |
+| **M4** reintento infinito con credenciales inválidas | El login rechazado es terminal: el conector sale con error; el motor de señales para sin reconexión; la PWA cuenta rechazos (máx. 3) y exige acción manual. El backoff queda reservado a fallos de transporte. Nuevo evento `login_rechazado` | `conector.js`, `cliente_mt5.js`, `motor-senales/app.js`, `pwa/proto.js`, `pwa/app.js` |
+| **M1** credenciales en `localStorage` sin cifrar | Por defecto viven en `sessionStorage` (mueren al cerrar la app); casilla «Recordar en este dispositivo» para persistir (opcional, explícita). Migración automática de configs antiguas a sesión | `pwa/app.js`, `pwa/index.html` |
+| **M2** caché del SW versionada a mano | El nombre de caché se deriva del hash SHA-256 del contenido real de la shell: cualquier cambio produce caché nueva y borra la anterior en `activate`. Ya no hay que bumpar `wt-pwa-vN` | `pwa/sw.js` |
+| **M5** sin test del parser de protocolo | `motor-senales/test_protocolo.mjs`: frames AES-CBC sintéticos inyectados al parser real de ambos clientes — handshake válido/inválido, login rechazado, catálogo, ticks, velas, paridad Node↔PWA campo a campo. Incluido en `npm test` | `motor-senales/test_protocolo.mjs` (nuevo), `package.json` |
+| **M6** `/estado` sin autenticación | Token opcional `ESTADO_TOKEN`: sin él todo queda abierto (localhost); con él, `/estado`, `/estrategia` y todos los POST exigen token por header `x-estado-token` o query. `/salud` sigue abierta para pingers. El panel arrastra `?token=` automáticamente. Verificado con pruebas 8/8 | `motor-senales/servidor.js`, `motor-senales/ui.html` |
+| **B1** huella UTF-16LE en PWA vs UTF-8 en Node | La PWA calcula la huella SHA-1 con `TextEncoder` (UTF-8), idéntica a Node. Queda tripwire en el test | `pwa/proto.js` |
+| **B2** protocolo duplicado en 3 ficheros | Mitigación elegida (sin refactor de riesgo): test cruzado que compara las constantes clave (OBF, 912, 526, offsets 66..98, 50, 48, 0x4001) en los 3 clientes, más la paridad de eventos del M5 | `test_protocolo.mjs` |
+| **B3–B6** (backtest) | Sin cambios: el backtest sigue congelado como referencia de solo lectura, tal como dicta la auditoría | — |
+| **B7** `reconexiones` cuenta cierres manuales | El contador solo suma reconexiones automáticas de transporte | `pwa/app.js` |
+| **B8** metadatos iOS | Añadidos `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style` y `apple-mobile-web-app-title` (el `apple-touch-icon` ya existía) | `pwa/index.html` |
+| **B9** ZIP duplicado en la raíz | `weltrade-conector-termux.zip` eliminado del repo; `conector/` es la única fuente de verdad (documentado en LEEME) | `conector/LEEME.md`, `README.md` |
+| **B10** instalador sin verificación | `instalar.sh` comprueba el sha256 de `conector.js` contra `conector.js.sha256` publicado junto a él; aborta si no coincide (escape `--sin-verificar`) | `conector/instalar.sh`, `conector.js.sha256` (nuevo) |
+
+**Pendiente fuera del código** (requiere entorno en vivo, igual que en la auditoría): la verificación única con cuenta demo de que el WSS acepta el `Origin` del navegador de la PWA (P0.3 de la sección 6).

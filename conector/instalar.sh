@@ -8,10 +8,29 @@ echo "==> Instalando Node.js en Termux..."
 pkg update -y && pkg install -y nodejs-lts
 
 DIR="$HOME/weltrade-conector"
+SRC="$(dirname "$0")"
+
+# --- verificación de integridad (B10) -------------------------------------
+# conector.js maneja credenciales del bróker: se comprueba su sha256 contra
+# el fichero conector.js.sha256 publicado junto a él. Si no coincide, la
+# copia está corrupta o manipulada. Escapa con --sin-verificar.
+if [ -f "$SRC/conector.js.sha256" ] && command -v sha256sum >/dev/null 2>&1; then
+  echo "==> Verificando integridad de conector.js (sha256)..."
+  if (cd "$SRC" && sha256sum -c conector.js.sha256 >/dev/null 2>&1); then
+    echo "    OK: el checksum coincide."
+  elif [ "$1" = "--sin-verificar" ]; then
+    echo "!!  Checksum NO coincide, pero continúas con --sin-verificar."
+  else
+    echo "!!  Checksum NO coincide: conector.js está corrupto o modificado." >&2
+    echo "!!  Vuelve a descargar el conector, o repite con: $0 --sin-verificar" >&2
+    exit 1
+  fi
+fi
+
 echo "==> Instalando conector en $DIR..."
 mkdir -p "$DIR"
-cp "$(dirname "$0")/conector.js" "$DIR/"
-[ -f "$DIR/.env" ] || cp "$(dirname "$0")/.env.ejemplo" "$DIR/.env"
+cp "$SRC/conector.js" "$DIR/"
+[ -f "$DIR/.env" ] || cp "$SRC/.env.ejemplo" "$DIR/.env"
 
 echo ""
 echo "======================================================"

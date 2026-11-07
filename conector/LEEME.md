@@ -9,6 +9,10 @@ Termux.
 > Logrado mediante ingeniería inversa del cliente web oficial con REA +
 > análisis del protocolo (WebSocket binario con AES-256-CBC).
 
+> **Nota:** el zip `weltrade-conector-termux.zip` se eliminó del repo:
+> se desactualizaba frente al código vivo. Instala siempre desde esta
+> carpeta (`bash instalar.sh`) — es la única fuente de verdad.
+
 ---
 
 ## 1. Instalación en Termux
@@ -18,7 +22,10 @@ Termux.
 bash instalar.sh
 ```
 
-Eso instala Node.js y copia todo a `~/weltrade-conector`.
+Eso instala Node.js, **verifica el sha256 de `conector.js`** contra
+`conector.js.sha256` (cadena de confianza: si el checksum no coincide, el
+instalador aborta; escapa con `bash instalar.sh --sin-verificar`) y copia todo
+a `~/weltrade-conector`.
 
 ## 2. Configura tus credenciales
 
@@ -89,7 +96,9 @@ Comandos conocidos: 0=handshake, 3/9=config, 4=market watch, 5=posiciones,
 ## Solución de problemas
 
 - **`login rechazado`** → revisa `WT_LOGIN`/`WT_PASS` y que `WT_HOST`
-  corresponda al tipo de cuenta (demo ≠ real).
+  corresponda al tipo de cuenta (demo ≠ real). Desde la auditoría, un login
+  rechazado es **terminal**: el conector NO reintenta en bucle (evita
+  bloqueos de cuenta) — corrige el `.env` y relanza.
 - **No llega el catálogo** → los servidores de Weltrade a veces reinician la
   sesión; el conector reconecta solo a los 3 s.
 - **El teléfono se duerme y se corta** → usa `termux-wake-lock` y desactiva la

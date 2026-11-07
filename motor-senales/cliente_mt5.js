@@ -104,13 +104,24 @@ class ClienteMT5 extends EventEmitter {
     // Handshake: clave de sesión en body[66..98]
     if (p.cmd === 0 && this.etapa === 'handshake') {
       this.clave = p.body.subarray(66, 98);
+      if (this.clave.length !== 32) {
+        // sin este guard createCipheriv lanzaba dentro de un try silencioso
+        this._log(`handshake inválido: clave de sesión de ${this.clave.length} B (esperados 32) — cerrando`);
+        this._cerrar();
+        return;
+      }
       this.etapa = 'login';
       this._enviar(28, buildLoginBody(this.login, this.pass, this.host));
       return;
     }
     // Login aceptado -> catálogo
     if (p.cmd === 28 && this.etapa === 'login') {
-      if (p.dd !== 0) { this._log(`login rechazado (dd=${p.dd}) — revisa cuenta/contraseña/servidor`); this.cerrar(); return; }
+      if (p.dd !== 0) {
+        this._log(`login rechazado (dd=${p.dd}) — revisa cuenta/contraseña/servidor`);
+        this.emit('login_rechazado', { dd: p.dd });   // app.js corta la reconexión automática
+        this.cerrar();
+        return;
+      }
       this.etapa = 'catalogo';
       this._enviar(3, Buffer.alloc(0)); this._enviar(9, Buffer.alloc(0)); this._enviar(6, Buffer.alloc(0));
       return;
