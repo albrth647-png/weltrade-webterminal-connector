@@ -150,6 +150,7 @@ function setChip(activo, texto, cls) {
 let lock = null;
 async function pedirWakeLock() {
   try {
+    if (lock) return;   // ya hay uno vivo: no pedir otro en cada reconexión (chip parpadeaba)
     if (!('wakeLock' in navigator)) { setChip('chipLock', 'pantalla: no soportada', ''); return; }
     lock = await navigator.wakeLock.request('screen');
     setChip('chipLock', 'pantalla: encendida', 'verde');
@@ -210,7 +211,11 @@ function crearCliente() {
     pass: ui.cPass.value,
     host: ui.cHost.value.trim() || 'mt5.demo.weltrade.org',
     filtro: simbolos.length
-      ? new RegExp('^(' + simbolos.map((s) => s.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|') + ')$', 'i')
+      /* escapar TODOS los meta-caracteres de regex (la clase anterior
+         no escapaba nada: un símbolo con ( ) . + construía un patrón
+         que nunca coincidía — y con [ moría en new RegExp sin aviso,
+         dejando el chip en «conectando…» para siempre) */
+      ? new RegExp('^(' + simbolos.map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')$', 'i')
       : undefined,
     limite: simbolos.length ? 0 : LIMITE_SIMBOLOS,   // sin lista explícita: tope por memoria
   });
@@ -447,7 +452,8 @@ ui.bTestTg.addEventListener('click', async () => {
   guardarConf();
   log('INFO', 'probando telegram…');
   const r = await telEnviar('✅ <b>WT Motor</b> conectado a tu Telegram');
-  log(r.ok ? 'INFO' : 'AVISO', r.ok ? 'telegram OK — revisa tu chat' : 'telegram falló');
+  if (r.ok) log('INFO', 'telegram OK — revisa tu chat');
+  else log('AVISO', 'telegram falló: ' + (r.motivo || r.error || 'desconocido'));   // antes solo «telegram falló»
 });
 
 ui.bTestNotif.addEventListener('click', async () => {

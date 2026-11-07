@@ -71,8 +71,10 @@ pwa/
 ├── velas_db.js      → histórico de velas en IndexedDB (persistente)
 ├── velas_canvas.js  → gráfico de velas en <canvas>: zoom, paneo, zonas y
 │                      señales dibujadas, vela en formación en vivo
-├── sw.js            → cache de la app-shell auto-versionada por hash SHA-256
-│                      (cambia cualquier fichero → caché nueva sola) y manejo
+├── sw.js            → app-shell en caché: código (HTML/JS/JSON) en red-primero
+│                      (un fix llega al recargar, incluso sin cambiar el SW);
+│                      iconos en caché-primero; sin red, la caché mantiene la
+│                      app arrancable. Nombre de caché por hash SHA-256 + manejo
 │                      de pulsos de notificación
 ├── manifest.json    → manifiesto PWA (iconos, standalone, portrait)
 └── icono-192/512/mascara .png, icono.svg

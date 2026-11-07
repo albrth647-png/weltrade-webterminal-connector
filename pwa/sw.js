@@ -8,10 +8,16 @@
    2) mostrar notificaciones mientras la app está abierta
 
    La caché se VERSIONA SOLA: el nombre deriva del hash SHA-256 del
-   contenido REAL de la shell, así que cualquier cambio en cualquier
-   fichero produce una caché nueva y borra la anterior en activate.
-   Nunca hay que incrementar versiones a mano (antes: 'wt-pwa-vN',
-   el clásico olvido que dejaba a los instalados con código viejo).
+   contenido REAL de la shell, así que cuando este fichero cambia
+   produce una caché nueva y borra la anterior en activate.
+
+   IMPORTANTE (bug D de la auditoría en vivo): el hash solo se puede
+   calcular en INSTALL, y el navegador solo re-instala el SW cuando
+   CAMBIA sw.js. Con cache-first en el fetch handler, un fix de app.js
+   jamás llegaba a los instalados: el SW viejo servía app.js viejo
+   para siempre. Por eso el fetch es AHORA red-primero para el código
+   (HTML/JS/JSON: con red SIEMPRE llega el código nuevo; la caché
+   queda como respaldo offline) y caché-primero solo para iconos.
    ============================================================ */
 const PREFIJO = 'wt-pwa-';
 const SHELL = ['./', './index.html', './app.js', './proto.js', './motor.js', './velas_db.js', './velas_canvas.js', './radio.js', './manifest.json', './icono.svg', './icono-192.png', './icono-512.png'];
@@ -52,13 +58,30 @@ self.addEventListener('fetch', (ev) => {
   if (ev.request.method !== 'GET') return;
   const url = new URL(ev.request.url);
   if (url.origin !== location.origin) return;   // api.telegram.org y wss pasan directo
+  const ruta = url.pathname;
+  const esCodigo = ruta.endsWith('/') || ruta.endsWith('.html') || ruta.endsWith('.js') || ruta.endsWith('.json');
+  if (!esCodigo) {
+    /* iconos y demás: caché-primero (no cambian, no son lógica) */
+    ev.respondWith(
+      caches.match(ev.request).then((hit) => hit || fetch(ev.request).then((r) => {
+        if (!CACHE || !r.ok) return r;
+        const copia = r.clone();
+        caches.open(CACHE).then((c) => c.put(ev.request, copia));
+        return r;
+      }))
+    );
+    return;
+  }
+  /* CÓDIGO: red primero. Un fix en app.js llega al recargar aunque el
+     SW no haya cambiado; sin red, la caché mantiene la app arrancable. */
   ev.respondWith(
-    caches.match(ev.request).then((hit) => hit || fetch(ev.request).then((r) => {
-      if (!CACHE || !r.ok) return r;            // sin caché lista o respuesta rara: red
-      const copia = r.clone();
-      caches.open(CACHE).then((c) => c.put(ev.request, copia));
+    fetch(ev.request).then((r) => {
+      if (r.ok && CACHE) {
+        const copia = r.clone();
+        caches.open(CACHE).then((c) => c.put(ev.request, copia));   // refresco de caché
+      }
       return r;
-    }))
+    }).catch(() => caches.match(ev.request).then((hit) => hit || Response.error()))
   );
 });
 

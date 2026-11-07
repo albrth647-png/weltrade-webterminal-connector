@@ -61,7 +61,9 @@ export class PanelVelas {
   destruir() {
     cancelAnimationFrame(this._raf);
     this._ro?.disconnect();
-    // todos los listeners van sobre this.cv: al quitar el nodo, mueren solos
+    if (this._mm) window.removeEventListener('mousemove', this._mm);
+    if (this._mu) window.removeEventListener('mouseup', this._mu);
+    // el resto de listeners van sobre this.cv: al quitar el nodo, mueren solos
   }
 
   /* ---------- infraestructura ---------- */
@@ -165,7 +167,9 @@ export class PanelVelas {
       puntero = { x: ev.clientX, offset0: this._offsetFin, movio: 0, t0: Date.now() };
       this._hover = { x: ev.clientX - r.left, y: ev.clientY - r.top };
     });
-    window.addEventListener('mousemove', (ev) => {
+    /* referencias guardadas: destruir() sí puede quitarlos (van sobre
+       window, NO sobre el canvas: no mueren con el nodo como el resto) */
+    this._mm = (ev) => {
       const r = cv.getBoundingClientRect();
       if (puntero && puntero.movio !== undefined) {
         const dx = ev.clientX - puntero.x;
@@ -178,8 +182,10 @@ export class PanelVelas {
       this._hover = (ev.clientY >= r.top && ev.clientY <= r.bottom && ev.clientX >= r.left && ev.clientX <= r.right)
         ? { x: ev.clientX - r.left, y: ev.clientY - r.top } : null;
       this._sucio = true; this._programar();
-    });
-    window.addEventListener('mouseup', () => { puntero = null; });
+    };
+    this._mu = () => { puntero = null; };
+    window.addEventListener('mousemove', this._mm);
+    window.addEventListener('mouseup', this._mu);
     cv.addEventListener('wheel', (ev) => {
       ev.preventDefault();
       const r = cv.getBoundingClientRect();
@@ -312,8 +318,11 @@ export class PanelVelas {
       const y = compra ? py(v.l) + 10 : py(v.h) - 10;
       ctx.fillStyle = compra ? C.alza : C.baja;
       ctx.beginPath();
-      if (compra) { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 3); ctx.lineTo(x + 5, y - 3); }
-      else { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 3); ctx.lineTo(x + 5, y + 3); }
+      /* ▲ COMPRA bajo la vela (apunta hacia arriba, hacia el precio) ·
+         ▼ VENTA sobre la vela (apunta hacia abajo). Los vértices estaban
+         invertidos: COMPRA dibujaba ▽ y VENTA △ (auditoría en vivo). */
+      if (compra) { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 3); ctx.lineTo(x + 5, y + 3); }
+      else { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 3); ctx.lineTo(x + 5, y - 3); }
       ctx.closePath(); ctx.fill();
       if (this._paso >= 6) {
         ctx.fillStyle = C.texto;
