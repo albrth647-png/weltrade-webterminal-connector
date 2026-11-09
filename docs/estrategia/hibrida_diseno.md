@@ -204,3 +204,26 @@ weltrade.org (2 min) y me pasas login/contraseña.
 - Diferencias v1↔v2: `docs/estrategia/diferencias_v1_original_vs_v2_ultima.md`.
 - Protocolo de datos: `conector/LEEME.md` (cmd 11 de velas, verificado en vivo).
 - Vídeos: `videos/yoel/datos/` (jerarquía 2B/2RB: v3 4:21-4:50).
+
+---
+
+## 4. Independencia por temporalidad (2026-11-08 — requisito del propietario)
+
+**Regla:** ninguna TF mira velas de otra. Cada TF aplica la estrategia COMPLETA con sus
+propias velas. Implementado con `HibridaParams.independiente=True` (por defecto).
+
+| Pieza | Modo v1 compartido (`independiente=False`) | Modo independiente (por defecto) |
+|---|---|---|
+| Zonas S/R fractales (capas A/B/C) | se calculan en M15 y se aplican a todas | se calculan en la TF de la señal |
+| Fases EARLY/MAIN/LATE (capa D) | velas M5 | velas de la TF de la señal |
+| Sesgo EMA30 + pendiente (capa E) | EMA30 de H1 | EMA30 de la TF de la señal |
+| Catálogo emitido | avisos 2/3 solo desde `emit_touches_from` (M15) | catálogo completo en cada TF (v2 invocado con `emit_touches_from="M1"`) |
+
+`capas_activas` ahora devuelve `independiente`, `zonas_por_tf` y `sesgo_por_tf` para poder
+auditar de qué TF salió cada capa.
+
+Backtest: `resolver_senales(..., independiente=True)` mide el ATR y camina el resultado en
+la MISMA TF de la señal (antes ATR M15 y recorrido M5 para todas).
+
+Test que lo fija: **T8** (`test_raptor_hibrida.py`) — perturbar M15/M30/H1 no cambia ni una
+fila de M1/M5, y una señal M5 calcula sus capas solo con M5.

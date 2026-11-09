@@ -56,8 +56,12 @@ def leer_csv_weltrade(simbolo: str, tf: str) -> pd.DataFrame:
         raise FileNotFoundError(f"no existe {f} — ejecuta antes: node conector/abrir_demo.js velas")
     df = pd.read_csv(f)
     idx = pd.to_datetime(df["time"], utc=True)
-    out = pd.DataFrame({"open": df["open"].astype(float), "high": df["high"].astype(float),
-                        "low": df["low"].astype(float), "close": df["close"].astype(float)}, index=idx)
+    # .to_numpy() es imprescindible: si se pasan Series, pandas las alinea por
+    # etiqueta (0..n-1) contra el índice de fechas y deja TODAS las velas en NaN.
+    out = pd.DataFrame({"open": df["open"].to_numpy(dtype=float),
+                        "high": df["high"].to_numpy(dtype=float),
+                        "low": df["low"].to_numpy(dtype=float),
+                        "close": df["close"].to_numpy(dtype=float)}, index=idx)
     return out[~out.index.duplicated(keep="first")].sort_index()
 
 
@@ -101,30 +105,78 @@ def cargar_dfs(fuente: str, simbolo: str, dias: int) -> dict[str, pd.DataFrame]:
 # Capa de riesgo (idéntica a la v1)
 # ────────────────────────────────────────────────────────────────────────────
 
-def resolver_senales(senales: pd.DataFrame, dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Adjunta SL/TP (ATR M15 SMA14, v1) y resuelve el resultado vela a vela en M5."""
-    df_m15 = dfs["M15"]
-    atr15 = H._atr_sma(df_m15["high"].to_numpy(float), df_m15["low"].to_numpy(float),
-                       df_m15["close"].to_numpy(float), 14)
-    t15 = df_m15.index
-    m5 = dfs["M5"]
-    m5_h = m5["high"].to_numpy(float)
-    m5_l = m5["low"].to_numpy(float)
-    m5_t = m5.index
+def aplicar_dedup(senales: pd.DataFrame, minutos: int) -> pd.DataFrame:
+    """Una entrada por dirección cada `minutos` (la v1 usaba 45 por zona).
+    Sin esto, la cascada 1R/2R/3R cuenta el MISMO movimiento varias veces y
+    infla el número de operaciones con señales correlacionadas."""
+    if not minutos or senales.empty:
+        return senales
+    df = senales.sort_values("time")
+    keep, ultimo = [], {}
+    for i, s in df.iterrows():
+        if s["kind"] != "entry":
+            keep.append(i)
+            continue
+        k = s["direction"]
+        t = pd.Timestamp(s["time"]).value
+        if t - ultimo.get(k, -10**30) < minutos * 60 * 10**9:
+            continue
+        ultimo[k] = t
+        keep.append(i)
+    return df.loc[keep].sort_values("time").reset_index(drop=True)
+
+
+def resolver_senales(senales: pd.DataFrame, dfs: dict[str, pd.DataFrame],
+                     independiente: bool = True, resolucion: str = "m5") -> pd.DataFrame:
+    """Adjunta SL/TP y resuelve el resultado vela a vela.
+
+    INDEPENDIENTE (por defecto): el ATR y el recorrido usan las velas de la
+    MISMA temporalidad de la señal — una señal M30 se mide y se camina en M30,
+    nunca en M15/M5. Con `independiente=False` se reproduce la capa de riesgo
+    v1 (ATR M15 SMA14, recorrido M5) para poder comparar.
+    """
+    atr_cache: dict[str, np.ndarray] = {}
+
+    def atr_de(tf: str) -> np.ndarray:
+        if tf not in atr_cache:
+            d = dfs[tf]
+            atr_cache[tf] = H._atr_sma(d["high"].to_numpy(float), d["low"].to_numpy(float),
+                                       d["close"].to_numpy(float), 14)
+        return atr_cache[tf]
 
     out = []
     for _, s in senales.iterrows():
         # los AVISOS (2/3/2R/3R) no son trades: «es para que tú vayas a buscar
         # la entrada» (v3 2:25-2:54) — se contabilizan, no se resuelven
         if s["kind"] == "touch":
-            out.append(dict(sl=np.nan, tp=np.nan, rr=np.nan, resultado="aviso", bars=0, netR=0.0))
+            out.append(dict(sl=np.nan, tp=np.nan, rr=np.nan, resultado="aviso", bars=0, netR=0.0, ambigua=False))
             continue
-        cierre_sig = pd.Timestamp(s["time"]) + pd.Timedelta(seconds=H.TF_SEGUNDOS.get(s["timeframe"], 300))
-        j = int(t15.searchsorted(cierre_sig, side="right")) - 1
-        atr = atr15[j] if j >= 0 else np.nan
+        tf_sig = str(s["timeframe"])
+        tf_atr = tf_sig if independiente else "M15"
+        # El ATR sale de la TF de la señal. El RECORRIDO es precisión del
+        # simulador, no acoplamiento de la estrategia: en una vela de H1 que
+        # toca TP y SL a la vez no se puede saber el orden, y contarla como
+        # pérdida sesga el WR hacia abajo. En M5 esa ambigüedad casi no existe.
+        if not independiente:
+            tf_rec = "M5"
+        elif resolucion == "m5" and "M5" in dfs:
+            tf_rec = "M5"
+        else:
+            tf_rec = tf_sig
+        if tf_atr not in dfs or tf_rec not in dfs:
+            out.append(dict(sl=np.nan, tp=np.nan, rr=np.nan, resultado="sin_atr", bars=0, netR=0.0, ambigua=False))
+            continue
+        d_atr = dfs[tf_atr]
+        atr_tf = atr_de(tf_atr)
+        cierre_sig = pd.Timestamp(s["time"]) + pd.Timedelta(seconds=H.TF_SEGUNDOS.get(tf_sig, 300))
+        if independiente:
+            j = int(s["bar_index"])          # misma vela de la señal, misma TF
+        else:
+            j = int(d_atr.index.searchsorted(cierre_sig, side="right")) - 1
+        atr = atr_tf[j] if 0 <= j < len(atr_tf) else np.nan
         entry = float(s["entry"])
         if not np.isfinite(atr) or atr <= 0:
-            out.append(dict(sl=np.nan, tp=np.nan, rr=np.nan, resultado="sin_atr", bars=0, netR=0.0))
+            out.append(dict(sl=np.nan, tp=np.nan, rr=np.nan, resultado="sin_atr", bars=0, netR=0.0, ambigua=False))
             continue
         sl_d, tp_d = 1.0 * atr, 2.0 * atr
         if s["direction"] == "BUY":
@@ -132,18 +184,23 @@ def resolver_senales(senales: pd.DataFrame, dfs: dict[str, pd.DataFrame]) -> pd.
         else:
             sl, tp = entry + sl_d, entry - tp_d
         rr = abs(tp - entry) / abs(entry - sl)
-        # caminar M5 desde la vela siguiente al cierre de la señal
-        k0 = int(m5_t.searchsorted(cierre_sig, side="right"))
-        resultado, bars = "abierta", 0
-        for k in range(k0, len(m5_t)):
+        # caminar desde la vela siguiente al cierre de la señal, en la TF del modo
+        rec = dfs[tf_rec]
+        rec_h = rec["high"].to_numpy(float)
+        rec_l = rec["low"].to_numpy(float)
+        if tf_rec == tf_sig:
+            k0 = int(s["bar_index"]) + 1
+        else:
+            k0 = int(rec.index.searchsorted(cierre_sig, side="right"))
+        resultado, bars, ambigua = "abierta", 0, False
+        for k in range(max(0, k0), len(rec)):
             bars = k - k0 + 1
             if s["direction"] == "BUY":
-                toca_sl, toca_tp = m5_l[k] <= sl, m5_h[k] >= tp
+                toca_sl, toca_tp = rec_l[k] <= sl, rec_h[k] >= tp
             else:
-                toca_sl, toca_h = m5_h[k] >= sl, m5_l[k] <= tp
-                toca_sl, toca_tp = toca_sl, toca_h
+                toca_sl, toca_tp = rec_h[k] >= sl, rec_l[k] <= tp
             if toca_sl and toca_tp:
-                resultado = "perdida"      # ambigua = pérdida (v1)
+                resultado, ambigua = "perdida", True   # ambigua = pérdida (v1)
                 break
             if toca_sl:
                 resultado = "perdida"
@@ -152,7 +209,9 @@ def resolver_senales(senales: pd.DataFrame, dfs: dict[str, pd.DataFrame]) -> pd.
                 resultado = "ganada"
                 break
         netR = rr if resultado == "ganada" else (-1.0 if resultado in ("perdida",) else 0.0)
-        out.append(dict(sl=sl, tp=tp, rr=rr, resultado=resultado, bars=bars, netR=netR))
+        out.append(dict(sl=sl, tp=tp, rr=rr, resultado=resultado, bars=bars, netR=netR, ambigua=ambigua))
+    if not out:   # sin señales: ninguna columna de resultado que rompa el informe
+        return senales.assign(sl=np.nan, tp=np.nan, rr=np.nan, resultado="", bars=0, netR=0.0, ambigua=False)
     res = pd.DataFrame(out, index=senales.index)
     return pd.concat([senales, res], axis=1)
 
@@ -161,14 +220,16 @@ def stats(df: pd.DataFrame) -> dict:
     res = df[df["resultado"].isin(("ganada", "perdida"))]
     n = len(res)
     avisos = int((df["resultado"] == "aviso").sum()) if len(df) else 0
+    amb = int(df["ambigua"].fillna(False).astype(bool).sum()) if len(df) and "ambigua" in df else 0
     if n == 0:
-        return dict(señales=len(df), avisos=avisos, resueltas=0, wr=np.nan, netR=0.0, pf=np.nan)
+        return dict(señales=len(df), avisos=avisos, resueltas=0, wr=np.nan, netR=0.0, pf=np.nan,
+                    ambiguas=amb)
     gan = res[res["resultado"] == "ganada"]["netR"].sum()
     per = -res[res["resultado"] == "perdida"]["netR"].sum()
     wr = 100.0 * (res["resultado"] == "ganada").mean()
     pf = gan / per if per > 0 else np.inf
     return dict(señales=len(df), avisos=avisos, resueltas=n, wr=round(float(wr), 1),
-                netR=round(float(res["netR"].sum()), 2), pf=round(float(pf), 2))
+                netR=round(float(res["netR"].sum()), 2), pf=round(float(pf), 2), ambiguas=amb)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -189,6 +250,10 @@ def main():
     ap.add_argument("--fuente", choices=("weltrade", "binance"), default="binance")
     ap.add_argument("--simbolo", default="BTCUSDT")
     ap.add_argument("--dias", type=int, default=10)
+    ap.add_argument("--resolucion", choices=("m5", "propia"), default="m5",
+                    help="granularidad del recorrido SL/TP (m5 = precisa; propia = TF de la señal)")
+    ap.add_argument("--dedup-min", type=int, default=0,
+                    help="minutos entre entradas de la misma dirección (la v1 usaba 45)")
     args = ap.parse_args()
 
     print(f"─" * 74)
@@ -204,7 +269,8 @@ def main():
     v2 = H._scan_todos(dfs, p.v2)
     enr, capas = H.enriquecer(v2, dfs, p)
     print(f"  capas activas: {capas}")
-    sen = resolver_senales(enr, dfs)
+    enr = aplicar_dedup(enr, args.dedup_min)
+    sen = resolver_senales(enr, dfs, independiente=p.independiente, resolucion=args.resolucion)
     sen.to_csv(RAIZ / "backtest_hibrida" / f"senales_hibrida_{args.fuente}_{args.simbolo.replace(' ', '_')}.csv")
 
     lineas = []
@@ -213,7 +279,12 @@ def main():
     add("")
     add(f"- Fecha: {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
     add(f"- Capas activas: {capas} · núcleo v2 CONGELADO (test T0 de igualdad en verde)")
-    add(f"- Riesgo: SL 1·ATR(M15 SMA14), TP 2·ATR, ambigua=pérdida (idéntico al baseline v1)")
+    add(f"- Modo: {'INDEPENDIENTE por TF (cada TF usa solo sus propias velas)' if p.independiente else 'compartido v1 (zonas M15 / fases M5 / sesgo H1)'}")
+    if p.independiente:
+        add(f"- Riesgo: SL 1·ATR(TF de la señal, SMA14), TP 2·ATR · recorrido en {args.resolucion.upper()} · "
+            f"ambigua=pérdida · dedup {args.dedup_min} min")
+    else:
+        add("- Riesgo: SL 1·ATR(M15 SMA14), TP 2·ATR, recorrido en M5; ambigua=pérdida (idéntico al baseline v1)")
     for tf, d in dfs.items():
         add(f"- {tf}: {len(d)} velas ({d.index[0]} → {d.index[-1]})")
     add("")
@@ -227,6 +298,16 @@ def main():
         add("```")
         add(tpat[["señales", "wr", "netR", "pf"]].to_string())
         add("```")
+    add("")
+    add("### Por temporalidad (cada TF mide lo suyo)")
+    resu_tf = sen[sen["resultado"].isin(("ganada", "perdida"))]
+    ttf = tabla_por(resu_tf, "timeframe") if len(resu_tf) else pd.DataFrame()
+    if len(ttf):
+        add("```")
+        add(ttf[["señales", "wr", "netR", "pf"]].to_string())
+        add("```")
+    else:
+        add("(sin entradas resueltas)")
     add("")
     add("### Por quintil de score (¿el score separa?)")
     resu = sen[sen["resultado"].isin(("ganada", "perdida"))].copy()

@@ -7,5 +7,22 @@
 node_modules/
 __pycache__/
 *.pyc
+*.err
 .DS_Store
 Thumbs.db
+
+# velas descargadas (datos, no código)
+backtest_hibrida/datos/
+
+# salidas generadas del backtest hibrido (no se versionan)
+backtest_hibrida/senales_*.csv
+backtest_hibrida/reporte_weltrade_*.md
+backtest_hibrida/diagnostico.md
+
+# log de arranque local del motor (se reescribe en cada arranque)
+motor-senales/arranque.log
+
+# outbox del motor de señales (estado local de entrega)
+motor-senales/.outbox.json
+motor-senales/.outbox.json.tmp
+motor-senales/.test_outbox.json

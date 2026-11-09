@@ -12,17 +12,30 @@
    ============================================================ */
 const { ClienteMT5 } = require('./cliente_mt5');
 const { Estrategia, TFS } = require('./estrategia');
+const { EstrategiaHibrida, TF_HIBRIDA } = require('./estrategia_hibrida');
 const { docACfg, resumenDoc } = require('./doc_estrategia');
 const { GestorEstrategia } = require('./gestor_estrategia');
 const { crearServidor } = require('./servidor');
-const { enviarTelegram, formatearSenal, telegramConfigurado } = require('./telegram');
+const { enviarTelegram, formatearSenal, formatearAviso, telegramConfigurado, estadoTelegram } = require('./telegram');
+const outbox = require('./outbox');
 
 const SIMBOLOS_ENV = (process.env.MS_SIMBOLOS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const SIN_TELEGRAM = process.env.MS_SIN_TELEGRAM === '1';
+const ENVIAR_AVISOS = process.env.MS_TELEGRAM_AVISOS === '1';
+/* Avisos de zona en tiempo real: APAGADOS por defecto. No son señales de la
+   estrategia (los toques son 1/2/3 y sus rompimientos 1R/2R/3R) y el mensaje
+   que salía los llamaba «toque» con un precio que no existía en el mercado.
+   MS_AVISO_INTRABAR=1 los enciende, ya con el formato correcto. */
+const AVISO_INTRABAR = process.env.MS_AVISO_INTRABAR === '1';
+/* Motor de señales: la HÍBRIDA manda (catálogo de Yoel + fases EARLY/MAIN/LATE).
+   MS_MOTOR=v1 deja el baseline anterior para comparar. */
+const MOTOR = process.env.MS_MOTOR || 'hibrida';
 const VERBOSO = process.env.MS_VERBOSO === '1';
 
-// días de historia por TF para la siembra (operativo, no estratégico)
-const DIAS_SEMILLA = { M1: 2, M5: 3, M15: 15, M30: 40, H1: 90, H4: 180, D1: 365 };
+/* Historia que se siembra y se conserva: UN MES por temporalidad (regla del
+   propietario). El tope real de velas en memoria lo aplica estrategia.js
+   (DIAS_RETENCION × velas/día), así que nada crece por encima de 30 días. */
+const DIAS_HISTORIA = 30;
 const SEG_TF = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
 
 const log = (nivel, msg, extra) => {
@@ -34,6 +47,7 @@ const log = (nivel, msg, extra) => {
 const stats = {
   iniciado: Date.now(),
   ticks: 0, ticksUltimoMin: [], senales: 0, tn: 0, reconexiones: 0,
+  avisos: 0, ultimaAlerta: null, latencias: [],
   ultimaSenal: null, estrategia: null, fuenteEstrategia: '', resembrando: false,
 };
 
@@ -50,20 +64,71 @@ let estrategia = null;
 // ---------- ciclo de vida de la estrategia (se construye SOLO desde documentos) ----------
 function construirEstrategia(doc) {
   if (estrategia) estrategia.removeAllListeners();
-  const e = new Estrategia(docACfg(doc));
+  const cfg = docACfg(doc);
+  const e = MOTOR === 'v1' ? new Estrategia(cfg) : new EstrategiaHibrida(cfg);
   e.on('senal', async (s) => {
     stats.senales++;
     stats.ultimaSenal = s;
-    log('SEÑAL', `${s.lado} ${s.simbolo} fase=${s.fase} score=${s.score} nivel=${s.nivel} precio=${s.precio} sl=${s.sl} tp=${s.tp}`);
+    /* la señal lleva QUÉ estrategia es: 2R, 1R, 3R… (+ fase de zona) */
+    const etq = s.patron ? `${s.patron}${s.fase ? ' ' + s.fase : ''}` : `fase=${s.fase}`;
+    /* latencia real: cierre de la vela -> motor. Si un día vuelve a crecer
+       (escaneo lento, cola de velas, feed atrasado) se ve en el log y en /estado. */
+    if (Number.isFinite(s.latenciaMs)) {
+      stats.latencias.push(s.latenciaMs);
+      if (stats.latencias.length > 500) stats.latencias.shift();
+    }
+    log('SEÑAL', `${s.lado} ${s.simbolo} ${etq} score=${s.score} precio=${s.precio} latencia=${Number.isFinite(s.latenciaMs) ? s.latenciaMs + ' ms' : '—'} estrategia=${s.estrategia}`);
     if (!SIN_TELEGRAM) {
-      const r = await enviarTelegram(formatearSenal(s));
-      if (!r.ok) log('AVISO', 'telegram falló: ' + (r.motivo || r.error));
+      const texto = formatearSenal(s);
+      try {
+        /* outbox: si el envío no confirma, el texto queda en disco y se
+           reenvía al arrancar siguiente. La clave de vela impide repetirla. */
+        outbox.marcarEmitida(s.clave);
+        outbox.pendiente(s.clave, texto, 0);
+        const r = await enviarTelegram(texto, { prioridad: 0 });
+        if (r.ok) {
+          outbox.entregada(s.clave);
+          log('ENVÍO', `entregada (message_id ${r.messageId ?? '—'})`);
+        } else {
+          log('AVISO', 'telegram falló: ' + (r.motivo || r.error) + ' — queda en outbox');
+        }
+      } catch (err) {
+        /* un error inesperado en Telegram no debe caer el motor */
+        log('ERROR', `telegram excepción: ${err.message}`);
+      }
+    }
+  });
+
+  /* AVISOS de operación (2/2R/3/3R): «el precio llegó a la zona, ve a buscar
+     la entrada». Van por su propio evento: antes se emitían por 'aviso', que
+     es el canal de logs y errores, y además se descartaban antes de salir. */
+  e.on('alerta', async (a) => {
+    if (a.origen === 'intrabar' && !AVISO_INTRABAR) return;   // opt-in
+    stats.avisos++;
+    stats.ultimaAlerta = a;
+    const etq = a.origen === 'intrabar' ? 'zona' : `${a.patron}${a.fase ? ' ' + a.fase : ''}`;
+    log('ALERTA', `${a.lado} ${a.simbolo} ${etq} (aviso, no entrada) ref=${a.precio} romper=${a.nivelRoto} latencia=${Number.isFinite(a.latenciaMs) ? a.latenciaMs + ' ms' : '—'}`);
+    if (ENVIAR_AVISOS && !SIN_TELEGRAM) {
+      const texto = formatearAviso(a);
+      try {
+        /* prioridad 1: los avisos esperan detrás de las entradas. Los intrabar
+           no van al outbox (son frecuentes y caducan solos). */
+        if (a.origen !== 'intrabar' && a.clave) {
+          outbox.marcarEmitida(a.clave);
+          outbox.pendiente(a.clave, texto, 1);
+        }
+        const r = await enviarTelegram(texto, { prioridad: 1 });
+        if (r.ok && a.origen !== 'intrabar' && a.clave) outbox.entregada(a.clave);
+        if (!r.ok) log('AVISO', 'telegram (alerta) falló: ' + (r.motivo || r.error));
+      } catch (err) {
+        log('ERROR', `telegram excepción (alerta): ${err.message}`);
+      }
     }
   });
   e.on('tn', (ev) => { stats.tn++; log('TN', `${ev.simbolo} zona ${ev.zona.tipo} ${ev.zona.nivel} cancelada (${ev.motivo})`); });
   e.on('toque', (ev) => { if (VERBOSO) log('TOQUE', `${ev.simbolo} ${ev.fase} en ${ev.zona.tipo} ${ev.zona.nivel}`); });
   e.on('zona', (ev) => { if (VERBOSO) log('ZONA', `${ev.simbolo} ${ev.evento}: ${ev.zona.tipo} ${ev.zona.nivel} (fuerza ${ev.zona.fuerza})`); });
-  e.on('aviso', (m) => log('AVISO', m));
+  e.on('aviso', (m) => log('AVISO', m));   // solo log/errores: las alertas de operación van por 'alerta'
   return e;
 }
 
@@ -79,22 +144,36 @@ async function resembrar() {
   stats.resembrando = true;
   try {
     const doc = gestor.actual().doc;
-    const tfs = [...new Set([doc.sesgo.tf, doc.zonas.tf, doc.toques.tf])].filter((tf) => TFS[tf]);
-    const plan = tfs.map((tf) => [tf, DIAS_SEMILLA[tf] || 15]);
+    /* la híbrida necesita las CUATRO temporalidades que escanea el backtest */
+    const tfs = MOTOR === 'v1'
+      ? [...new Set([doc.sesgo.tf, doc.zonas.tf, doc.toques.tf])].filter((tf) => TFS[tf])
+      : TF_HIBRIDA;
+    const plan = tfs.map((tf) => [tf, DIAS_HISTORIA]);
     log('INFO', `sembrando historial de ${simbolosActivos.length} símbolos (${plan.map((p) => p[0]).join('/')}) para "${doc.meta.nombre}"...`);
-    for (const s of simbolosActivos) {
-      for (const [tf, dias] of plan) {
+    /* Orden TF-major: primero el M5 de TODOS los símbolos (es el que alimenta el
+       aviso intrabar y el que antes puede operar), después M15, M30 y H1. Antes
+       iba símbolo a símbolo y el último esperaba 2–3 min sin poder emitir.
+       No se puede paralelizar: cmd 11 no identifica el símbolo en la respuesta,
+       así que el cliente serializa las peticiones de velas a propósito. */
+    for (const [tf, dias] of plan) {
+      for (const s of simbolosActivos) {
         /* re-sembrado INCREMENTAL: tras una reconexión el búfer en memoria
            sigue vivo — solo se piden las velas posteriores a la última
            (antes se redescargaban los días completos en CADA reconexión) */
         const previas = (estrategia.historia(s) || {})[tf] || [];
         const ultima = previas.length ? previas[previas.length - 1].t : 0;
         if (previas.length && Date.now() - ultima < (SEG_TF[tf] || 900) * 1000) continue;   // caché al día
-        const desde = ultima ? Math.floor(ultima / 1000) + 1 : 0;
-        const r = await cliente.pedirVelas(s, { tf, dias, desde, timeoutMs: desde ? 4000 : 10000 });
+        /* desde = última (INCLUSIVE), no última+1: la vela que cerró el tick
+           es sintética (apertura = primer tick) y hay que dejar que el bróker
+           la reemplace por la real. Con +1 s nunca se pedía y la serie quedaba
+           envenenada con una vela falsa por cada cierre, para siempre. */
+        const desde = ultima ? Math.floor(ultima / 1000) : 0;
+        /* un mes de M5 en una sola respuesta tarda ~30 s: el timeout del pedido
+           COMPLETO tiene que cubrirlo o la siembra se queda sin velas */
+        const r = await cliente.pedirVelas(s, { tf, dias, desde, timeoutMs: desde ? 8000 : 45000 });
         let nuevas = r && r.velas.length ? r.velas : [];
         if (!nuevas.length && desde) {
-          const r2 = await cliente.pedirVelas(s, { tf, dias, timeoutMs: 6000 });   // reintento único
+          const r2 = await cliente.pedirVelas(s, { tf, dias, timeoutMs: 45000 });   // reintento único
           if (r2 && r2.velas.length) nuevas = r2.velas;
         }
         if (nuevas.length) {
@@ -103,7 +182,7 @@ async function resembrar() {
         } else if (!previas.length) {
           log('AVISO', `${tf} ${s}: sin respuesta — se calienta con ticks en vivo`);
         }
-        await new Promise((r2) => setTimeout(r2, 350)); // espaciado entre peticiones
+        await new Promise((r2) => setTimeout(r2, 200)); // espaciado entre peticiones
       }
     }
     log('INFO', 'sembrado terminado — motor en marcha');
@@ -116,7 +195,23 @@ async function resembrar() {
 estrategia = construirEstrategia(gestor.actual().doc);
 stats.estrategia = resumenDoc(gestor.actual().doc);
 stats.fuenteEstrategia = gestor.actual().fuente;
-log('INFO', `estrategia activa: "${gestor.actual().doc.meta.nombre}" (${gestor.actual().fuente})`);
+log('INFO', `estrategia activa: "${gestor.actual().doc.meta.nombre}" · motor ${MOTOR} (${gestor.actual().fuente})`);
+/* Outbox: recordar lo ya emitido (para no repetirlo tras un reinicio) y
+   reenviar lo que quedó pendiente de entrega. */
+outbox.cargar();
+if (estrategia.sembrarEmitidas) estrategia.sembrarEmitidas(outbox.emitidasRecientes());
+const pendientesArranque = outbox.pendientes();
+if (pendientesArranque.length && !SIN_TELEGRAM) {
+  log('INFO', `reenviando ${pendientesArranque.length} señales pendientes de entrega`);
+  (async () => {
+    for (const p of pendientesArranque) {
+      const r = await enviarTelegram(p.texto, { prioridad: p.prioridad || 0 });
+      if (r.ok) outbox.entregada(p.clave);
+      else log('AVISO', `pendiente ${p.clave} sigue sin entregar: ${r.motivo || r.error}`);
+    }
+  })();
+}
+
 const SIMBOLOS = gestor.actual().doc.simbolos.length ? gestor.actual().doc.simbolos : SIMBOLOS_ENV;
 
 // cliente -> estrategia (siempre la instancia vigente)
@@ -130,6 +225,12 @@ cliente.on('listo', async ({ simbolos }) => {
   simbolosActivos = simbolos;
   await resembrar();
 });
+
+/* Refresco CONTINUO de velas: cada minuto se revisa qué TF ya cerró una vela
+   nueva y se pide solo esa. resembrar() es incremental (salta las que están al
+   día) y fusiona por timestamp, así que repetir no duplica ni deja huecos. */
+const REFRESCO_VELAS_MS = 60 * 1000;
+setInterval(() => { if (estrategia) resembrar(); }, REFRESCO_VELAS_MS);
 
 // nuevo documento activado desde la web -> estrategia nueva + re-siembra
 gestor.on('cambio', async (doc) => {
@@ -177,6 +278,20 @@ cliente.on('cerrar', () => {
     ticksPorMinuto: (stats.ticksUltimoMin = stats.ticksUltimoMin.filter((t) => t > Date.now() - 60e3)).length,
     senalesHoy: stats.senales, tn: stats.tn, reconexiones: stats.reconexiones,
     ultimaSenal: stats.ultimaSenal,
+    avisos: stats.avisos,
+    ultimaAlerta: stats.ultimaAlerta,
+    /* la prueba de que la señal no sale tarde: cierre de vela -> emisión */
+    latenciaMs: {
+      ultima: stats.ultimaSenal ? stats.ultimaSenal.latenciaMs ?? null : null,
+      p50: stats.latencias.length
+        ? [...stats.latencias].sort((a, b) => a - b)[Math.floor((stats.latencias.length - 1) * 0.5)]
+        : null,
+      n: stats.latencias.length,
+    },
+    /* contadores internos del motor: emitidas / avisos / intrabar / suprimidas / viejas */
+    motor: estrategia && estrategia.stats ? estrategia.stats : null,
+    telegram: { ...estadoTelegram(), configurado: telegramConfigurado() && !SIN_TELEGRAM },
+    outbox: outbox.tamano(),
     estrategia: stats.estrategia,
     fuenteEstrategia: stats.fuenteEstrategia,
     simbolos: estrategia ? estrategia.resumen() : {},
@@ -188,8 +303,14 @@ cliente.on('cerrar', () => {
 /* (el handler único de 'cerrar' está más arriba, junto al resto de
    cableados del cliente: UNA suscripción, UN temporizador) */
 
-process.on('SIGTERM', () => { log('INFO', 'SIGTERM — cerrando'); cliente.cerrar(); process.exit(0); });
-process.on('SIGINT', () => { log('INFO', 'SIGINT — cerrando'); cliente.cerrar(); process.exit(0); });
+process.on('SIGTERM', () => { log('INFO', 'SIGTERM — cerrando'); if (estrategia) estrategia.destruir(); cliente.cerrar(); process.exit(0); });
+process.on('SIGINT', () => { log('INFO', 'SIGINT — cerrando'); if (estrategia) estrategia.destruir(); cliente.cerrar(); process.exit(0); });
 
-log('INFO', `motor de señales iniciado (cuenta ${cliente.login} @ ${cliente.host}, telegram: ${SIN_TELEGRAM ? 'off' : telegramConfigurado() ? 'on' : 'sin configurar'})`);
+/* Aviso explícito: con el token pero sin chat_id el motor arranca y NO envía
+   nada a Telegram (telegramConfigurado() exige los dos). Antes solo se veía
+   «telegram: sin configurar» entre las demás líneas del arranque. */
+if (!SIN_TELEGRAM && !telegramConfigurado()) {
+  log('AVISO', 'TELEGRAM_TOKEN o TELEGRAM_CHAT sin definir en .env — las señales se quedan en consola, NO llegan a Telegram');
+}
+log('INFO', `motor de señales iniciado (motor ${MOTOR}, cuenta ${cliente.login} @ ${cliente.host}, telegram: ${SIN_TELEGRAM ? 'off' : telegramConfigurado() ? 'on' : 'sin configurar'})`);
 arrancar();

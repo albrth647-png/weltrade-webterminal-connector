@@ -1,10 +1,14 @@
 # Motor de Señales Weltrade — estrategia como documento
 
-Motor de señales **original y autónomo** para índices sintéticos de Weltrade,
-construido sobre el protocolo MT5 revertido en este repo (`conector/`). No es
-el Raptor de SIFO ni pretende serlo: reproduce con lógica propia la **taxonomía
-observable** de su sistema de señales (zonas → toques en 3 fases → cancelación,
-sesgo multi-timeframe), documentada en `docs/RAPTOR_dossier_intel.md`.
+Motor de señales para índices sintéticos de Weltrade, construido sobre el
+protocolo MT5 revertido en este repo (`conector/`). El motor en vivo es la
+**RAPTOR HÍBRIDA**: el catálogo del propietario (toques 1 · 2 · 3, rompimientos
+1R · 2R · 3R, seductora 1S) traído de `estrategias/raptor_hibrida.py` a Node, con las zonas
+fractales, las fases **EARLY / MAIN / LATE**, el sesgo EMA30 y el score.
+Cada temporalidad aplica la estrategia completa con sus propias velas.
+
+Al port no se le cree nada: se verifica contra el Python (**1.650 señales, 0
+diferencias**) y cada etiqueta se re-audita con sus reglas (0 violaciones).
 
 - **Sin dependencias npm** — solo Node.js ≥ 22 (WebSocket global).
 - Corre en Termux, PC, o en la nube (Render free / Oracle Always Free).
@@ -30,12 +34,12 @@ GESTOR DE ESTRATEGIA (gestor_estrategia.js)
    └── DOCUMENTO activo: estrategias/activa.json
        (si no existe: estrategias/raptor_default.json)
    ▼
-ESTRATEGIA (estrategia.js — vocabulario genérico, SIN estrategia)
-   ├── ZONAS   pivotes fractales confirmados, agrupados por proximidad
-   ├── TOQUES  EARLY (1er contacto) · MAIN (retest tras excursión) · LATE
-   ├── TN      cancelación por cierre más allá de la zona
-   ├── SESGO   filtro multi-TF por media móvil
-   └── SEÑAL   toque + sesgo alineado + gatillo direccional + score ≥ mínimo
+MOTOR HÍBRIDO (estrategia_hibrida.js + raptor_hibrida.js + raptor_core.js)
+   ├── CATÁLOGO 1 · 2 · 3 (toque) · 1R · 2R · 3R (rompimiento) · 1S (seductora, solo con MS_SEDUCTORA=1)
+   ├── ZONAS   pivotes fractales confirmados, refuerzo y TN
+   ├── FASES   EARLY (1er contacto) · MAIN (retest tras excursión) · LATE
+   ├── SESGO   EMA30 con pendiente + gatillo direccional (por TF)
+   └── SEÑAL   patrón + fase + zona + score   (MS_MOTOR=v1 deja el motor viejo)
    ▼
 CONSOLA + TELEGRAM + PANEL WEB (botón importar) + HTTP /estado
 ```
@@ -96,9 +100,15 @@ parten de la plantilla neutra y solo aplican parámetros extraídos con certeza.
 cd motor-senales
 cp .env.ejemplo .env
 nano .env                  # credenciales + Telegram (opcional)
-npm test                   # 35 checks (motor + importador) — deben pasar todos
+npm test                   # 76 checks (motor + importador + PWA)
+npm run validar:port       # el port Node vs el Python: 1.650 señales, 0 diferencias
+npm run validar:reglas     # re-audita cada etiqueta contra su regla: 0 violaciones
+npm run demo:hibrida       # replay de velas reales con el formato de mensaje
 node app.js                # en marcha: panel http://localhost:3000/ + /estado
 ```
+
+`validar:port` y `validar:reglas` necesitan los CSV de `backtest_hibrida/datos/`
+(están en `.gitignore`: son datos, no código).
 
 Salida típica:
 
@@ -106,7 +116,7 @@ Salida típica:
 [INFO] listo: 15 símbolos suscritos
 [INFO] sembrando historial H1 de 15 símbolos (cmd 11)...
 [INFO] H1 FX Vol 20: 2158 velas (0 descartadas)
-[SEÑAL] COMPRA FX Vol 20 fase=MAIN score=80 nivel=114520.10 ...
+[SEÑAL] VENTA FX Vol 20 2R score=85 precio=117037.47 estrategia=Raptor-híbrida v2
 ```
 
 ## 5. Telegram (recomendado)
@@ -118,10 +128,17 @@ Salida típica:
 
 Cada señal llega así:
 
-> 🟢 **COMPRA · FX Vol 20**  (score 80)
-> Fase: **MAIN** · Sesgo H1: alza
-> Nivel (M15): 114520.10 · Precio: 114524.30
-> SL: 114390.10 · TP: 114784.30
+> 🟢 **COMPRA**
+> **1. Activo:** SFX Vol 40
+> **2. Temporalidad:** H1
+> **3. Estrategia:** 3R · MAIN · Raptor-híbrida v2
+> **4. Precio:** 119652.19
+> **5. Hora:** 2026-11-08 13:00 UTC
+
+El código delante es el **patrón que disparó la señal** (catálogo de Yoel) y, si
+la zona estaba en confluencia, la fase de la zona (`EARLY`/`MAIN`/`LATE`). Los
+avisos `2`/`3` **no se envían como operación**: son «ve a buscar la entrada» y
+salen por consola (ver `docs/estrategia/por_que_etiquetar_la_estrategia.md`).
 
 ## 6. Despliegue en Render (gratis, 24/7)
 
@@ -158,3 +175,28 @@ Alternativa sin límite de sueño: **Oracle Cloud Always Free** (2 OCPU/12 GB).
   "historial de alertas para validación" de SIFO).
 - Ejecución automática: comandos de órdenes del protocolo (cmd pendiente de
   revertir en `CKnWTLdC.js`).
+
+## Avisos de zona en tiempo real (opcionales, apagados)
+
+`MS_AVISO_INTRABAR=1` enciende el aviso de que el precio ha llegado a la banda de
+una zona fractal (`0,15 × ATR` de M5). **No es una señal de la estrategia** — esas
+son los toques `1 · 2 · 3` y sus rompimientos `1R · 2R · 3R` — y el mensaje lo dice
+(la seductora va aparte, como `1S`, porque no es el rompimiento de ningún toque)
+explícitamente. Sale como máximo una vez por símbolo y dirección cada 30 minutos, y
+lleva la cotización real (ask al comprar, bid al vender), no el punto medio
+`(bid+ask)/2` que se enviaba antes.
+
+## Símbolo y precio: por qué no se cruzan
+
+La respuesta de velas (`cmd 11`) **no dice de qué símbolo es**. Antes se repartía
+a todos los pedidos pendientes y, si un lote llegaba partido con más de 700 ms
+entre trozos, el resto se pegaba al símbolo siguiente: el búfer de un activo
+quedaba con los precios de otro y la señal salía con nombre de uno y precio de
+otro. Ahora:
+
+- el lote va **solo** al pedido en curso (`_pendiente11Actual`), y lo que llegue
+  sin pedido vivo se descarta;
+- hay un cooldown de 800 ms al cerrar cada lote para tragar los trozos tardíos;
+- `_loteValido()` descarta el lote si su último cierre se desvía más de un 20 %
+  del precio vivo del símbolo (FX Vol 20 ~118.000 · SFX Vol 20 ~35.300: eso no
+  es volatilidad, es un cruce).

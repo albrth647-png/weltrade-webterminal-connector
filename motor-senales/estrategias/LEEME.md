@@ -30,8 +30,8 @@ TN, sesgo, scoring) y el esquema que valida estos documentos.
   "dedup":  { "minutos": 45 },
   "riesgo": { "slAtr": 1.0, "tpAtr": 2.0 },
   "atr":    { "periodo": 14 },
-  "maxVelas": { "M1": 1200, "M5": 600, "M15": 400, "M30": 300,
-                "H1": 300, "H4": 200, "D1": 100 }
+  "maxVelas": { "M1": 43200, "M5": 8640, "M15": 2880, "M30": 1440,
+                "H1": 720, "H4": 180, "D1": 50 }
 }
 ```
 

@@ -255,17 +255,76 @@ async function testVelaFormandose() {
 
 /* ---------- 12. formatearSenal: escape HTML + hora ---------- */
 async function testTelegramFormato() {
-  console.log('— formatearSenal: escape HTML y hora UTC —');
+  console.log('— formatearSenal: formato de señal y escape HTML —');
   const s = {
     lado: 'COMPRA', simbolo: 'FX Vol <20>', fase: 'MAIN', sesgo: 'alza',
-    tfZona: 'M15', nivel: 98.6, precio: 98.9, sl: 97.4, tp: 101.1, score: 75,
+    tfZona: 'M15', tfGatillo: 'M5', nivel: 98.6, precio: 98.9, sl: 97.4, tp: 101.1,
+    score: 75, estrategia: 'Raptor-propio v1',
     motivo: 'MAIN en soporte (fuerza 2) & retest', t: Date.UTC(2026, 0, 2, 3, 4, 0),
   };
-  for (const [nombre, msg] of [['PWA', formatearPWA(s)], ['Node', formatearNodo(s)]]) {
-    check(`${nombre}: símbolo con < > escapado`, msg.includes('FX Vol &lt;20&gt;') && !msg.includes('FX Vol <20>'), msg.split('\n')[0]);
-    check(`${nombre}: & del motivo escapado`, msg.includes('fuerza 2) &amp; retest'));
-    check(`${nombre}: incluye hora UTC`, /Hora: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/.test(msg));
-  }
+  const msg = formatearNodo(s);
+  const l = msg.split('\n');
+  check('Node: cabecera con COMPRA', /🟢 <b>COMPRA<\/b>/.test(l[0]), l[0]);
+  check('Node: 1 es el activo', /^<b>1\. Activo:<\/b> FX Vol &lt;20&gt;$/.test(l[1]), l[1]);
+  check('Node: 2 es la temporalidad', /^<b>2\. Temporalidad:<\/b> M15 · entrada M5$/.test(l[2]), l[2]);
+  check('Node: 3 es la estrategia', /^<b>3\. Estrategia:<\/b> Raptor-propio v1$/.test(l[3]), l[3]);
+  check('Node: 4 es el precio entrada', /^<b>4\. Precio entrada:<\/b> 98\.9 \(vela cerrada\)$/.test(l[4]), l[4]);
+  check('Node: 5 es la hora UTC', /^<b>5\. Hora:<\/b> 2026-01-02 03:04 UTC$/.test(l[5]), l[5]);
+  check('Node: sin SL/TP (5 campos + cabecera)', l.length === 6 && !/(?:SL|TP):/.test(msg), `lineas=${l.length}`);
+  check('Node: código de patrón delante del nombre',
+    formatearNodo({ ...s, patron: '2R' }).split('\n')[3] === '<b>3. Estrategia:</b> 2R · Raptor-propio v1');
+  check('Node: símbolo con < > escapado', !msg.includes('FX Vol <20>'));
+  check('Node: VENTA usa icono rojo', formatearNodo({ ...s, lado: 'VENTA' }).startsWith('🔴 <b>VENTA</b>'));
+  check('Node: sin estrategia cae a un nombre por defecto',
+    formatearNodo({ ...s, estrategia: undefined }).split('\n')[3] === '<b>3. Estrategia:</b> Raptor');
+  /* la PWA conserva su formato anterior */
+  const p = formatearPWA(s);
+  check('PWA: símbolo con < > escapado', p.includes('FX Vol &lt;20&gt;') && !p.includes('FX Vol <20>'));
+  check('PWA: & escapado', p.includes('fuerza 2) &amp; retest'));
+  check('PWA: incluye hora UTC', /Hora: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/.test(p));
+  check('PWA: sin SL/TP', !/(?:SL|TP):/.test(p));
+}
+
+/* ---------- 13. cmd 11: un lote no puede cruzar de símbolo ---------- */
+async function testCruceVelas() {
+  console.log('— cmd 11: el lote va SOLO al pedido en curso (símbolos sin cruzar) —');
+  const cliente = new ClienteMT5({});
+  cliente.etapa = 'listo';
+  cliente.nombres = { 1: 'FX Vol 20', 2: 'SFX Vol 20' };
+  cliente.ids = { 'FX Vol 20': 1, 'SFX Vol 20': 2 };
+  cliente._enviarPacket = () => { };                       // sin socket: test offline
+  cliente._ultimoPrecio = { 'FX Vol 20': 118000, 'SFX Vol 20': 35300 };
+
+  const recibido = {};
+  const t1 = setTimeout(() => { }, 4000);
+  const t2 = setTimeout(() => { }, 4000);
+  cliente._pendientes11.set('SFX Vol 20', { resolver: (r) => { recibido['SFX Vol 20'] = r; }, timer: t1 });
+  cliente._pendientes11.set('FX Vol 20', { resolver: (r) => { recibido['FX Vol 20'] = r; }, timer: t2 });
+  cliente._pendiente11Actual = 'SFX Vol 20';
+
+  const cuerpo = Buffer.alloc(48);
+  cuerpo.writeUInt32LE(1700000000, 0);
+  cuerpo.writeDoubleLE(35290, 4); cuerpo.writeDoubleLE(35310, 12);
+  cuerpo.writeDoubleLE(35280, 20); cuerpo.writeDoubleLE(35300, 28);
+  cliente._onMensaje(frame(packet(11, 0, cuerpo)));
+  await espera(800);
+
+  const nSfx = (recibido['SFX Vol 20']?.velas || []).length;
+  check('el lote llega solo al símbolo pedido', nSfx === 1 && !recibido['FX Vol 20'],
+    `SFX=${nSfx} FX=${(recibido['FX Vol 20']?.velas || []).length}`);
+
+  cliente._onMensaje(frame(packet(11, 0, cuerpo)));
+  await espera(100);
+  check('un trozo tardío no se pega al símbolo siguiente', !recibido['FX Vol 20']);
+
+  check('un lote con precio de otro activo se descarta',
+    cliente._loteValido('FX Vol 20', [{ c: 35300 }], 0).velas.length === 0);
+  check('un lote con el precio del propio activo se acepta',
+    cliente._loteValido('FX Vol 20', [{ c: 118100 }], 0).velas.length === 1);
+
+  clearTimeout(t1); clearTimeout(t2);
+  cliente._pendientes11.clear();
+  cliente._pendiente11Actual = null;
 }
 
 /* ---------- ejecución ---------- */
@@ -278,6 +337,7 @@ try {
   await testCerrarIdempotente();
   await testVelaFormandose();
   await testTelegramFormato();
+  await testCruceVelas();
 } catch (e) {
   mal++;
   console.error('✗ excepción en el test:', e);

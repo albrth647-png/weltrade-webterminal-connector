@@ -72,17 +72,19 @@ def T0_igualdad():
     for nombre, serie in escenarios_reales().items():
         casos.append((f"escenario {nombre}", dfs_de(serie)))
         casos.append((f"escenario {nombre} espejo", {tf: espejo(d) for tf, d in dfs_de(serie).items()}))
+    clave = ["time", "timeframe", "direction", "pattern", "entry"]
+    cols_v2 = ["time", "timeframe", "direction", "kind", "pattern", "entry", "invalidation", "broken_level"]
     for nombre, dfs in casos:
-        partes = [scan_v2(dfs[tf], tf, Params()) for tf in dfs]
-        v2_todas = pd.concat(partes, ignore_index=True)
+        p = H.HibridaParams()                     # params con los que corre la híbrida
+        partes = [scan_v2(dfs[tf], tf, p.v2) for tf in dfs]
+        partes = [s for s in partes if len(s)]
+        v2_todas = pd.concat(partes, ignore_index=True).sort_values(clave).reset_index(drop=True)
         check(f"{nombre}: el escenario genera señales v2 ({len(v2_todas)})", len(v2_todas) > 0)
-        fin, enr, capas = H.scan_hibrida(dfs, H.HibridaParams())
-        mismo = (len(fin) == len(v2_todas)
-                 and (fin[["time", "timeframe", "direction", "pattern", "entry"]].reset_index(drop=True)
-                      .equals(v2_todas[["time", "timeframe", "direction", "pattern", "entry"]].reset_index(drop=True))))
-        check(f"{nombre}: {len(v2_todas)} señales v2 == {len(fin)} híbrida", mismo)
-        iguales = enr[["time", "timeframe", "direction", "kind", "pattern", "entry", "invalidation", "broken_level"]].reset_index(drop=True).equals(
-            v2_todas[["time", "timeframe", "direction", "kind", "pattern", "entry", "invalidation", "broken_level"]].reset_index(drop=True))
+        fin, enr, capas = H.scan_hibrida(dfs, p)
+        fin_ord = fin[clave].sort_values(clave).reset_index(drop=True)
+        check(f"{nombre}: {len(v2_todas)} señales v2 == {len(fin)} híbrida",
+              len(fin) == len(v2_todas) and fin_ord.equals(v2_todas[clave]))
+        iguales = enr[cols_v2].sort_values(clave).reset_index(drop=True).equals(v2_todas[cols_v2])
         check(f"{nombre}: columnas v2 intactas tras enriquecer", iguales)
 
 
@@ -188,8 +190,9 @@ def T5_score():
 def T6_filtros():
     print("T6 — Filtros ON: solo quitan, nunca crean ni cambian")
     dfs = dfs_de(escenarios_reales()["A"])
-    fin, enr, _ = H.scan_hibrida(dfs, H.HibridaParams())
-    v2 = pd.concat([scan_v2(dfs[tf], tf, Params()) for tf in dfs], ignore_index=True)
+    p0 = H.HibridaParams()
+    fin, enr, _ = H.scan_hibrida(dfs, p0)
+    v2 = pd.concat([s for s in (scan_v2(dfs[tf], tf, p0.v2) for tf in dfs) if len(s)], ignore_index=True)
     check("hay señales para el test", len(v2) > 0, "escenario sin señales")
     # con todo OFF: sin filtrar
     check("todo OFF → sin filtrar", len(fin) == len(v2))
@@ -213,25 +216,82 @@ def T6_filtros():
 
 
 def T7_degradacion():
-    print("T7 — Degradación: faltan TFs de contexto, las señales v2 siguen intactas")
+    print("T7 — Degradación: sin otras TFs las señales v2 siguen intactas")
     serie = escenarios_reales()["A"]
-    v2 = scan_v2(serie, "M1", Params())
+    p = H.HibridaParams()
+    v2 = scan_v2(serie, "M1", p.v2)
     m5 = dfs_de(serie, incluir_m1=False)
     for nombre, dfs in [("solo M1 (sin M15/H1/M5)", {"M1": serie}),
                         ("M1+M5 sin M15/H1", {"M1": serie, "M5": m5["M5"]})]:
-        fin, enr, capas = H.scan_hibrida(dfs, H.HibridaParams())
+        fin, enr, capas = H.scan_hibrida(dfs, p)
         mismo = fin[["time", "direction", "pattern", "entry"]].reset_index(drop=True).equals(
             v2[["time", "direction", "pattern", "entry"]].reset_index(drop=True))
         check(f"{nombre}: señales v2 intactas ({len(v2)})", mismo)
-        if "M15" not in dfs:
-            check(f"{nombre}: capa zonas marcada ausente", capas["zonas"] is False)
+        check(f"{nombre}: contexto solo desde las TF presentes",
+              set(capas["zonas_por_tf"]) <= set(dfs) and set(capas["sesgo_por_tf"]) <= set(dfs),
+              f"zonas={capas['zonas_por_tf']} sesgo={capas['sesgo_por_tf']}")
+    # modo compartido v1: sin M15 no hay capa de zonas (degradación histórica)
+    _, _, capas_v1 = H.scan_hibrida({"M1": serie}, H.HibridaParams(independiente=False))
+    check("modo compartido sin M15: capa zonas ausente", capas_v1["zonas"] is False)
+
+
+def T8_independencia():
+    print("T8 — Independencia por TF: cada TF aplica la estrategia SOLO con sus velas")
+    dfs = dfs_de(escenarios_reales()["A"])
+    p = H.HibridaParams()
+    check("modo independiente ON por defecto", p.independiente is True)
+    check("catálogo completo por TF (avisos 2/3 desde M1)", p.v2.emit_touches_from == "M1")
+    sen = H._scan_todos(dfs, p.v2)
+    enr, capas = H.enriquecer(sen, dfs, p)
+    tfs_sig = set(enr["timeframe"].unique())
+    check("zonas calculadas con la TF de cada señal", set(capas["zonas_por_tf"]) == tfs_sig,
+          f"zonas_por_tf={capas['zonas_por_tf']} señales={tfs_sig}")
+    check("sesgo calculado con la TF de cada señal", set(capas["sesgo_por_tf"]) == tfs_sig,
+          f"sesgo_por_tf={capas['sesgo_por_tf']} señales={tfs_sig}")
+    # M5 y M1 no deben cambiar si M15/M30/H1 se vuelven irreconocibles
+    dfs2 = {tf: d.copy() for tf, d in dfs.items()}
+    for tf in ("M15", "M30", "H1"):
+        d = dfs2[tf].copy()
+        for col in ("open", "high", "low", "close"):
+            d[col] = d[col] * 3.0 + 1000.0
+        dfs2[tf] = d
+    enr2 = H.enriquecer(H._scan_todos(dfs2, p.v2), dfs2, p)[0]
+    cols = ["time", "timeframe", "direction", "pattern", "zona_id", "zona_tipo",
+            "fase_zona", "sesgo_h1", "sesgo_ok", "score"]
+    peque = enr[enr["timeframe"].isin(("M1", "M5"))]
+    peque2 = enr2[enr2["timeframe"].isin(("M1", "M5"))]
+    check("M1/M5 intactos al perturbar M15/M30/H1",
+          len(peque) == len(peque2) and len(peque) > 0
+          and peque[cols].reset_index(drop=True).equals(peque2[cols].reset_index(drop=True)),
+          f"{len(peque)} vs {len(peque2)}")
+    # señal sintética en M5: su contexto debe salir de M5, nunca de M15/H1
+    d5 = dfs["M5"]
+    k = len(d5) // 2
+    sen_m5 = pd.DataFrame([dict(time=d5.index[k], bar_index=k, timeframe="M5",
+                                direction="SELL", kind="entry", pattern="2B",
+                                entry=float(d5.iloc[k]["close"]),
+                                invalidation=float(d5.iloc[k]["high"]),
+                                broken_level=float(d5.iloc[k]["low"]))])
+    e5, capas5 = H.enriquecer(sen_m5, dfs, p)
+    check("señal M5: zonas y sesgo salen de M5",
+          capas5["zonas_por_tf"] == ["M5"] and capas5["sesgo_por_tf"] == ["M5"],
+          f"{capas5}")
+    check("señal M5: sesgo calculado (no 'desconocido')",
+          str(e5.iloc[0]["sesgo_h1"]) in ("alza", "baja", "lateral"),
+          f"sesgo={e5.iloc[0]['sesgo_h1']}")
+    cols_m5 = ["time", "timeframe", "direction", "pattern", "zona_id", "zona_tipo",
+               "fase_zona", "sesgo_h1", "sesgo_ok", "score"]
+    e5b = H.enriquecer(sen_m5, dfs2, p)[0]
+    check("señal M5 intacta al perturbar M15/M30/H1",
+          e5[cols_m5].equals(e5b[cols_m5]))
 
 
 if __name__ == "__main__":
     print("=" * 70)
     print("TESTS RAPTOR HÍBRIDA (núcleo v2 congelado)")
     print("=" * 70)
-    T0_igualdad(); T1_zonas(); T2_fases(); T3_sesgo(); T4_gatillo(); T5_score(); T6_filtros(); T7_degradacion()
+    T0_igualdad(); T1_zonas(); T2_fases(); T3_sesgo(); T4_gatillo(); T5_score()
+    T6_filtros(); T7_degradacion(); T8_independencia()
     print("-" * 70)
     print(f"RESULTADO: {OK} ✅ / {FAIL} ❌")
     raise SystemExit(1 if FAIL else 0)

@@ -222,27 +222,36 @@ export class ClienteMT5Web {
         const id = u32(b, off);
         const bid = f64(b, off + 12) / 100, ask = f64(b, off + 20) / 100;
         if (!(bid > 0) || !(ask > 0)) continue;
-        this.emit('tick', { simbolo: this.nombres[id] || `id_${id}`, bid, ask, t: Date.now() });
+        const simbolo = this.nombres[id] || `id_${id}`;
+        /* precio vivo: sirve para detectar velas de OTRO activo (cmd 11 no
+           dice de quién son) antes de meterlas en el histórico */
+        (this._ultimoPrecio || (this._ultimoPrecio = {}))[simbolo] = (bid + ask) / 2;
+        this.emit('tick', { simbolo, bid, ask, t: Date.now() });
       }
       return;
     }
     // Velas (respuesta a cmd 11, posiblemente partida en varios frames).
-    // La respuesta NO identifica el símbolo: va al único pendiente en
-    // curso (las peticiones están serializadas); respuestas tardías de
-    // una petición caducada se descartan por la ventana de silencio.
-    if (p.cmd === 11 && this._pendientes11.size) {
+    // La respuesta NO identifica el símbolo: se entrega ÚNICAMENTE al pedido en
+    // curso. Antes se repartía a todos los pendientes y un lote partido con más
+    // de 700 ms entre trozos pegaba el resto al símbolo siguiente (el búfer de
+    // un activo quedaba con precios de otro).
+    if (p.cmd === 11) {
+      const nombre = this._pendiente11Actual;
+      const pend = nombre && this._pendientes11.get(nombre);
+      if (!pend) return;                              // sin pedido vivo: se descarta
+      if (Date.now() < this._silencio11Hasta) return;  // resto de un lote caducado
       const vela = this._parseVelas(p.body);
-      for (const [nombre, pend] of this._pendientes11) {
-        if (!pend.buf) pend.buf = [];
-        for (const v of vela.velas) pend.buf.push(v);
-        pend.descartadas = (pend.descartadas || 0) + vela.descartadas;
-        if (pend.debounce) clearTimeout(pend.debounce);
-        pend.debounce = setTimeout(() => {
-          clearTimeout(pend.timer);
-          this._pendientes11.delete(nombre);
-          pend.resolver({ velas: pend.buf, descartadas: pend.descartadas || 0 });
-        }, 700);
-      }
+      if (!pend.buf) pend.buf = [];
+      for (const v of vela.velas) pend.buf.push(v);
+      pend.descartadas = (pend.descartadas || 0) + vela.descartadas;
+      if (pend.debounce) clearTimeout(pend.debounce);
+      pend.debounce = setTimeout(() => {
+        clearTimeout(pend.timer);
+        this._pendientes11.delete(nombre);
+        if (this._pendiente11Actual === nombre) this._pendiente11Actual = null;
+        this._silencio11Hasta = Date.now() + 800;    // cooldown: no entra en el siguiente
+        pend.resolver(this._loteValido(nombre, pend.buf, pend.descartadas || 0));
+      }, 700);
       return;
     }
   }
@@ -252,10 +261,10 @@ export class ClienteMT5Web {
      packet[68..70)  = u16 PERIOD_* de MT5 en little-endian (H1=0x4001, M15=15, M5=5...)
      packet[70..78)  = [u32 desde][u32 hasta] (época en segundos)
      Respuesta: registros de 48 B [u32 t][f64 o][f64 h][f64 l][f64 c][u32 vol][u32 flags] */
-  /* Serializadas: cmd 11 no trae el símbolo en la respuesta y el reparto
-     va a TODOS los pendientes — dos peticiones solapadas corromperían el
-     histórico con velas del símbolo equivocado. Una cada vez, con una
-     ventana de silencio tras cada timeout para tragar respuestas tardías. */
+  /* Serializadas: cmd 11 no trae el símbolo en la respuesta y el reparto va al
+     ÚNICO pedido en curso — dos peticiones solapadas corromperían el histórico
+     con velas del símbolo equivocado. Una cada vez, con ventana de silencio tras
+     cada lote y tras cada timeout para tragar respuestas tardías. */
   pedirVelas(nombre, opts = {}) {
     if (this.etapa !== 'listo' || !this.ids[nombre]) return Promise.resolve(null);
     this._cola11 = (this._cola11 || Promise.resolve())
@@ -281,12 +290,28 @@ export class ClienteMT5Web {
         const pend = this._pendientes11.get(nombre);
         if (pend && pend.debounce) clearTimeout(pend.debounce);
         this._pendientes11.delete(nombre);
+        if (this._pendiente11Actual === nombre) this._pendiente11Actual = null;
         this._silencio11Hasta = Date.now() + 1500;   // traga respuestas tardías del timeout
         resolver(null);
       }, timeoutMs);
       this._pendientes11.set(nombre, { resolver, timer, iniciado: Date.now() });
+      this._pendiente11Actual = nombre;
       this._enviarRaw(packet);
     });
+  }
+
+  /* Guard de cruce: el último cierre del lote tiene que estar en el rango del
+     precio vivo del símbolo. Si no, son velas de otro activo y se descartan
+     antes de envenenar el histórico. */
+  _loteValido(nombre, velas, descartadas) {
+    if (!velas || !velas.length) return { velas: velas || [], descartadas };
+    const ref = (this._ultimoPrecio || {})[nombre];
+    const ult = velas[velas.length - 1].c;
+    if (ref && Number.isFinite(ref) && Math.abs(ult - ref) / ref > 0.2) {
+      this._log(`velas de ${nombre} descartadas: cierre ${ult} no cuadra con el precio vivo ${ref} (cruce de cmd 11)`);
+      return { velas: [], descartadas: descartadas + velas.length };
+    }
+    return { velas, descartadas };
   }
 
   /* cmd 11 lleva su propia cabecera dentro del packet completo (no es solo body) */

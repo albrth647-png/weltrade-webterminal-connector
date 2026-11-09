@@ -1,8 +1,8 @@
 {
   "meta": {
-    "nombre": "Raptor-propio",
-    "version": 1,
-    "descripcion": "Zonas fractales M15 + toques EARLY/MAIN/LATE + TN + sesgo EMA(30) H1 + gatillo M5 direccional. Documento de referencia — idéntica al baseline del backtest de 1 año (3.341 señales, PF 1.27)."
+    "nombre": "Raptor-híbrida",
+    "version": 2,
+    "descripcion": "Catálogo del propietario: toques de EMA30 1/2/3 (aviso) y rompimientos 1R/2R/3R (entrada); R = rompimiento, no reset; la seductora se etiqueta 1S y va apagada por defecto (MS_SEDUCTORA=1). + zonas fractales con fuerza y TN + fases EARLY/MAIN/LATE + sesgo EMA(30) + gatillo direccional + score. Cada temporalidad aplica la estrategia completa con sus propias velas. Port validado contra raptor_hibrida.py: 1.650 señales, 0 diferencias comparando el mismo evento (vocabulario normalizado)."
   },
   "simbolos": [],
   "zonas": { "activo": true, "tf": "M15", "indicador": "fractales", "alas": 2, "tolPivoteAtr": 0.30, "tolPivoteRel": 0.0008, "vigenciaHoras": 48 },
@@ -14,5 +14,5 @@
   "dedup": { "minutos": 45 },
   "riesgo": { "slAtr": 1.0, "tpAtr": 2.0 },
   "atr": { "periodo": 14 },
-  "maxVelas": { "M1": 1200, "M5": 600, "M15": 400, "M30": 300, "H1": 300, "H4": 200, "D1": 100 }
+  "maxVelas": { "M1": 43200, "M5": 8640, "M15": 2880, "M30": 1440, "H1": 720, "H4": 180, "D1": 50 }
 }

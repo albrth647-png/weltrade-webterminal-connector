@@ -11,9 +11,13 @@
      respuesta: registros de 48 B [u32 t][f64 o][f64 h][f64 l][f64 c][u32 vol][u32 ?]
    Credenciales -> motor-senales/.env (gitignoreado, NUNCA se sube)
    Velas       -> backtest_hibrida/datos/<simbolo>_<TF>.csv
+   Robustez    -> 3 reintentos por trozo (conexión mala) y fusión por timestamp
+                  con el CSV existente: repetir una descarga NUNCA duplica velas.
+                  Incremental por defecto (desde la última vela guardada, que se
+                  refresca); --completo re-pide la ventana entera y fusiona.
    Uso:
      node abrir_demo.js crear
-     node abrir_demo.js velas --simbolos "FX Vol 20,FX Vol 60" --periodos M5,M15 --dias 366
+     node abrir_demo.js velas --simbolos "FX Vol 20,FX Vol 60" --periodos M5,M15 --dias 366 [--completo]
    ============================================================ */
 const fs = require('fs');
 const path = require('path');
@@ -131,11 +135,19 @@ function conectar(cuerpoHandshake = Buffer.alloc(64)) {
 
 function esperar(st, filtro, ms = 20000) {
   return new Promise((res, rej) => {
-    const t = setTimeout(() => rej(new Error('timeout esperando respuesta')), ms);
-    st.pendientes.push((p) => {
-      if (filtro(p)) { clearTimeout(t); st.pendientes = st.pendientes.filter((x) => x !== fn); res(p); }
-    });
-    const fn = st.pendientes[st.pendientes.length - 1];
+    // el manejador se retira SIEMPRE (al responder o al vencer): si se quedara
+    // colgado tras un timeout, una respuesta posterior lo resolvería por error.
+    const manejador = (p) => {
+      if (!filtro(p)) return;
+      clearTimeout(t);
+      st.pendientes = st.pendientes.filter((x) => x !== manejador);
+      res(p);
+    };
+    const t = setTimeout(() => {
+      st.pendientes = st.pendientes.filter((x) => x !== manejador);
+      rej(new Error('timeout esperando respuesta'));
+    }, ms);
+    st.pendientes.push(manejador);
   });
 }
 
@@ -197,7 +209,8 @@ async function descargarVelas() {
     const m = l.match(/^\s*(WT_[A-Z_]+)\s*=\s*(.*?)\s*$/); if (m) env[m[1]] = m[2];
   }
   if (!env.WT_LOGIN || !env.WT_PASS) throw new Error('no hay credenciales: ejecuta antes `node abrir_demo.js crear`');
-  const simbolos = (argvVal('--simbolos', 'FX Vol 20,FX Vol 60,FX Vol 99,SFX Vol 20,SFX Vol 60,SFX Vol 99,Step Index')).split(',').map((s) => s.trim()).filter(Boolean);
+  // el proyecto trabaja SOLO con estos 4 índices (por defecto y sin sorpresas)
+  const simbolos = (argvVal('--simbolos', 'FX Vol 20,FX Vol 40,SFX Vol 20,SFX Vol 40')).split(',').map((s) => s.trim()).filter(Boolean);
   const periodos = (argvVal('--periodos', 'M5,M15,M30,H1')).split(',').map((s) => s.trim());
   const dias = parseInt(argvVal('--dias', '366'), 10);
   const hasta = Math.floor(Date.now() / 1000);
@@ -211,45 +224,82 @@ async function descargarVelas() {
   if (rxL.dd !== 0) throw new Error(`login rechazado (dd=${rxL.dd})`);
   log(`login ok (${env.WT_LOGIN})`);
 
-  const hastaMs = new Promise((r) => setTimeout(r, dias * 86400e3 / (simbolos.length * periodos.length) + 20000));
+  const INTENTOS = 3;
+  const pausa = (ms) => new Promise((r) => setTimeout(r, ms));
+  const completo = process.argv.includes('--completo');
+
+  /* pide un trozo con reintentos: si falla la conexión repite EL MISMO trozo
+     (no avanza ni deja hueco) y avisa en el log; agotados los intentos sigue
+     con el trozo siguiente para no perder el resto del par. */
+  async function pedirTrozo(simbolo, per, d0, d1) {
+    const body = Buffer.alloc(74);
+    ponWstr(body, 0, simbolo, 64);
+    body.writeUInt16LE(PERIODOS[per] ?? 0, 64);
+    body.writeUInt32LE(d0, 66);
+    body.writeUInt32LE(d1, 70);
+    for (let intento = 1; intento <= INTENTOS; intento++) {
+      st.enviar(11, body);
+      const rx = await esperar(st, (q) => q.cmd === 11, 20000).catch(() => null);
+      if (rx && rx.dd === 0) return rx.body;
+      log('WARN', `  ${simbolo} ${per}: intento ${intento}/${INTENTOS} ${rx ? `dd=${rx.dd}` : 'sin respuesta'}${intento < INTENTOS ? ` — reintento en ${intento}s` : ' — trozo perdido'}`);
+      if (intento < INTENTOS) await pausa(intento * 1000);
+    }
+    return null;
+  }
+
   for (const simbolo of simbolos) {
     for (const per of periodos) {
-      const filas = [];
-      // trozos de ~40 días (por si el servidor limita velas por respuesta)
-      for (let d0 = desde; d0 < hasta; d0 += 40 * 86400) {
-        const d1 = Math.min(d0 + 40 * 86400, hasta);
-        const body = Buffer.alloc(74);
-        ponWstr(body, 0, simbolo, 64);
-        body.writeUInt16LE(PERIODOS[per] ?? 0, 64);
-        body.writeUInt32LE(d0, 66);
-        body.writeUInt32LE(d1, 70);
-        st.enviar(11, body);
-        const rx = await esperar(st, (q) => q.cmd === 11, 20000).catch(() => null);
-        if (!rx) { log(`  ${simbolo} ${per}: sin respuesta en trozo ${new Date(d0 * 1000).toISOString().slice(0, 10)}`); break; }
-        if (rx.dd !== 0) { log(`  ${simbolo} ${per}: dd=${rx.dd} — paro este par`); break; }
-        const b = rx.body;
-        for (let off = 0; off + 48 <= b.length; off += 48) {
-          const t = b.readUInt32LE(off);
-          const o_ = b.readDoubleLE(off + 4), h = b.readDoubleLE(off + 12), l = b.readDoubleLE(off + 20), c = b.readDoubleLE(off + 28);
-          const vol = b.readUInt32LE(off + 36);
-          filas.push([t, o_, h, l, c, vol]);
+      const archivo = path.join(DATOS, `${simbolo.replace(/\s+/g, '_')}_${per}.csv`);
+
+      // 1) lo que ya está en disco (clave = timestamp): no se vuelve a pedir ni
+      //    puede duplicarse al fusionar
+      const enDisco = new Map();
+      if (fs.existsSync(archivo)) {
+        for (const linea of fs.readFileSync(archivo, 'utf8').split('\n').slice(1)) {
+          if (!linea.trim()) continue;
+          const p = linea.split(',');
+          const t = Math.floor(Date.parse(p[0]) / 1000);
+          if (Number.isFinite(t)) enDisco.set(t, [t, +p[1], +p[2], +p[3], +p[4], +p[5]]);
         }
       }
-      if (filas.length) {
-        filas.sort((a, b) => a[0] - b[0]);
-        const dedup = filas.filter((f, i) => i === 0 || f[0] !== filas[i - 1][0]);
-        const csv = ['time,open,high,low,close,volume', ...dedup.map((f) => {
-          const d = new Date(f[0] * 1000).toISOString();
-          return [d, f[1], f[2], f[3], f[4], f[5]].join(',');
-        })].join('\n') + '\n';
-        const archivo = path.join(DATOS, `${simbolo.replace(/\s+/g, '_')}_${per}.csv`);
-        fs.writeFileSync(archivo, csv);
-        log(`  ${simbolo} ${per}: ${dedup.length} velas -> ${path.basename(archivo)} (${new Date(dedup[0][0] * 1000).toISOString().slice(0, 10)} → ${new Date(dedup[dedup.length - 1][0] * 1000).toISOString().slice(0, 10)})`);
+
+      // 2) incremental: se re-pide desde la ÚLTIMA vela guardada (así se refresca
+      //    la que estaba en formación). --completo ignora el disco y re-pide todo.
+      let desdePar = desde;
+      if (!completo && enDisco.size) desdePar = Math.max(desde, Math.max(...enDisco.keys()));
+      if (desdePar >= hasta) { log(`  ${simbolo} ${per}: al dia (${enDisco.size} velas)`); continue; }
+
+      const filas = new Map();   // t -> fila: sin duplicados por construcción
+      let perdidos = 0;
+      /* trozo: como máximo ~4000 velas del periodo pedido. El servidor trunca
+         las respuestas grandes sin avisar (30 días de M5 = 8.640 velas), así
+         que se parte la ventana para que ninguna vela quede fuera. */
+      const SEG_PER = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
+      const paso = Math.min(40 * 86400, 4000 * (SEG_PER[per] || 300));
+      for (let d0 = desdePar; d0 < hasta; d0 += paso) {
+        const d1 = Math.min(d0 + paso, hasta);
+        const b = await pedirTrozo(simbolo, per, d0, d1);
+        if (!b) { perdidos++; continue; }
+        for (let off = 0; off + 48 <= b.length; off += 48) {
+          const t = b.readUInt32LE(off);
+          filas.set(t, [t, b.readDoubleLE(off + 4), b.readDoubleLE(off + 12), b.readDoubleLE(off + 20), b.readDoubleLE(off + 28), b.readUInt32LE(off + 36)]);
+        }
       }
+      if (!filas.size) { log(`  ${simbolo} ${per}: sin velas nuevas${perdidos ? ` (${perdidos} trozo(s) perdido(s))` : ''}`); continue; }
+
+      let nuevas = 0;
+      for (const t of filas.keys()) if (!enDisco.has(t)) nuevas++;
+      // 3) fusión por timestamp: lo recién pedido manda (refresca la vela viva)
+      const todas = [...new Map([...enDisco, ...filas]).values()].sort((a, b) => a[0] - b[0]);
+      const csv = ['time,open,high,low,close,volume', ...todas.map((f) =>
+        [new Date(f[0] * 1000).toISOString(), f[1], f[2], f[3], f[4], f[5]].join(','))].join('\n') + '\n';
+      fs.writeFileSync(archivo, csv);
+      log(`  ${simbolo} ${per}: ${todas.length} velas (${nuevas} nuevas, ${filas.size - nuevas} refrescadas)` +
+        `${perdidos ? ` · ${perdidos} trozo(s) perdido(s)` : ''} -> ${path.basename(archivo)} ` +
+        `(${new Date(todas[0][0] * 1000).toISOString().slice(0, 10)} → ${new Date(todas[todas.length - 1][0] * 1000).toISOString().slice(0, 10)})`);
     }
   }
   st.cerrar();
-  clearTimeout(hastaMs);
 }
 
 // ---------- main ----------

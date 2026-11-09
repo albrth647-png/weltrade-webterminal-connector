@@ -110,7 +110,7 @@ function mostrarSenal(s) {
   lado.textContent = s.lado;
   const meta = document.createElement('span');
   meta.className = 'meta';
-  meta.textContent = `${s.simbolo} · ${s.fase} · score ${s.score} · SL ${s.sl} / TP ${s.tp} · ${new Date(s.horaPared).toLocaleString()}`;
+  meta.textContent = `${s.simbolo} · ${s.fase} · score ${s.score} · ${new Date(s.horaPared).toLocaleString()}`;
   d.appendChild(lado); d.appendChild(meta);
   ui.senales.prepend(d);
   while (ui.senales.querySelectorAll('.senal').length > 30) ui.senales.removeChild(ui.senales.lastChild);
@@ -263,12 +263,12 @@ function cablear() {
   estrategia.on('senal', async (s) => {
     stats.senalesHoy++;
     s.horaPared = Date.now();
-    log('SENAL', `${s.lado} ${s.simbolo} fase=${s.fase} score=${s.score} nivel=${s.nivel} sl=${s.sl} tp=${s.tp}`);
+    log('SENAL', `${s.lado} ${s.simbolo} fase=${s.fase} score=${s.score} nivel=${s.nivel}`);
     tablaSenales.unshift(s);
     tablaSenales = tablaSenales.slice(0, 30);
     guardarSenales(tablaSenales);
     mostrarSenal(s);
-    await notificar(`${s.lado} · ${s.simbolo}`, `score ${s.score} · SL ${s.sl} / TP ${s.tp}`);
+    await notificar(`${s.lado} · ${s.simbolo}`, `score ${s.score} · ${s.fase}`);
     await telEnviar(formatearSenal(s));
   });
   estrategia.on('tn', (ev) => {

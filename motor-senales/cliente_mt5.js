@@ -63,6 +63,8 @@ class ClienteMT5 extends EventEmitter {
     this.etapa = 'apagado';
     this._ping = null;
     this._pendientes11 = new Map(); // nombre -> {resolver, timer}
+    this._pendiente11Actual = null;   // el ÚNICO pedido de velas en curso
+    this._ultimoPrecio = {};          // nombre -> último precio vivo (guard de cruce)
     this._cola11 = null;              // serialización de peticiones de velas
     this._silencio11Hasta = 0;        // ventana anti-respuesta-tardía tras un timeout
     this._cerrada = false;            // guard de idempotencia de _cerrar
@@ -118,6 +120,7 @@ class ClienteMT5 extends EventEmitter {
     this.etapa = 'apagado';
     for (const [, p] of this._pendientes11) { clearTimeout(p.timer); if (p.debounce) clearTimeout(p.debounce); p.resolver(null); }
     this._pendientes11.clear();
+    this._pendiente11Actual = null;
     this.emit('cerrar');
   }
 
@@ -183,24 +186,39 @@ class ClienteMT5 extends EventEmitter {
         const id = b.readUInt32LE(off);
         const bid = b.readDoubleLE(off + 12) / 100, ask = b.readDoubleLE(off + 20) / 100;
         if (!(bid > 0) || !(ask > 0)) continue;
-        this.emit('tick', { simbolo: this.nombres[id] || `id_${id}`, bid, ask, t: Date.now() });
+        const simbolo = this.nombres[id] || `id_${id}`;
+        /* precio vivo: es lo que permite detectar velas de OTRO activo antes de
+           meterlas en el histórico (la respuesta de cmd 11 no trae el símbolo) */
+        this._ultimoPrecio[simbolo] = (bid + ask) / 2;
+        this.emit('tick', { simbolo, bid, ask, t: Date.now() });
       }
       return;
     }
     // Velas (respuesta a cmd 11, posiblemente partida en varios frames)
-    if (p.cmd === 11 && this._pendientes11.size) {
+    if (p.cmd === 11) {
+      /* La respuesta NO identifica el símbolo: se entrega ÚNICAMENTE al pedido
+         en curso. Antes se repartía a todos los pendientes y, cuando un lote
+         llegaba partido con más de 700 ms entre trozos, el resto se pegaba al
+         símbolo SIGUIENTE: el búfer de un activo quedaba con precios de otro
+         (la señal decía FX Vol 20 con el precio de SFX Vol 20). */
+      const nombre = this._pendiente11Actual;
+      const pend = nombre && this._pendientes11.get(nombre);
+      if (!pend) return;                              // sin pedido vivo: se descarta
+      if (Date.now() < this._silencio11Hasta) return;  // resto de un lote caducado
       const vela = this._parseVelas(p.body);
-      for (const [nombre, pend] of this._pendientes11) {
-        if (!pend.buf) pend.buf = [];
-        for (const v of vela.velas) pend.buf.push(v);
-        pend.descartadas = (pend.descartadas || 0) + vela.descartadas;
-        if (pend.debounce) clearTimeout(pend.debounce);
-        pend.debounce = setTimeout(() => {
-          clearTimeout(pend.timer);
-          this._pendientes11.delete(nombre);
-          pend.resolver({ velas: pend.buf, descartadas: pend.descartadas || 0 });
-        }, 700);
-      }
+      if (!pend.buf) pend.buf = [];
+      for (const v of vela.velas) pend.buf.push(v);
+      pend.descartadas = (pend.descartadas || 0) + vela.descartadas;
+      if (pend.debounce) clearTimeout(pend.debounce);
+      pend.debounce = setTimeout(() => {
+        clearTimeout(pend.timer);
+        this._pendientes11.delete(nombre);
+        if (this._pendiente11Actual === nombre) this._pendiente11Actual = null;
+        /* Cooldown tras cerrar el lote: un trozo tardío ya no puede entrar en
+           el pedido del símbolo siguiente. */
+        this._silencio11Hasta = Date.now() + 800;
+        pend.resolver(this._loteValido(nombre, pend.buf, pend.descartadas || 0));
+      }, 700);
       return;
     }
   }
@@ -239,12 +257,29 @@ class ClienteMT5 extends EventEmitter {
         const pend = this._pendientes11.get(nombre);
         if (pend && pend.debounce) clearTimeout(pend.debounce);
         this._pendientes11.delete(nombre);
+        if (this._pendiente11Actual === nombre) this._pendiente11Actual = null;
         this._silencio11Hasta = Date.now() + 1500;   // traga respuestas tardías del timeout
         resolver(null);
       }, timeoutMs);
       this._pendientes11.set(nombre, { resolver, timer, iniciado: Date.now() });
+      this._pendiente11Actual = nombre;
       this._enviarPacket(packet);
     });
+  }
+
+  /* Guard de cruce: el último cierre del lote tiene que estar en el rango del
+     precio vivo del símbolo. Si no, son velas de otro activo y se descartan
+     ANTES de envenenar el histórico (FX Vol 20 ~118.000 · SFX Vol 20 ~35.300:
+     un 20 % de desvío no es volatilidad, es un cruce de respuesta). */
+  _loteValido(nombre, velas, descartadas) {
+    if (!velas || !velas.length) return { velas: velas || [], descartadas };
+    const ref = this._ultimoPrecio[nombre];
+    const ult = velas[velas.length - 1].c;
+    if (ref && Number.isFinite(ref) && Math.abs(ult - ref) / ref > 0.2) {
+      this._log(`velas de ${nombre} descartadas: cierre ${ult} no cuadra con el precio vivo ${ref} (cruce de cmd 11)`);
+      return { velas: [], descartadas: descartadas + velas.length };
+    }
+    return { velas, descartadas };
   }
 
   /* Parser de velas: registros de 48 B

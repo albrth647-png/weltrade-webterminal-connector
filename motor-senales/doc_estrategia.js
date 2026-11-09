@@ -49,10 +49,11 @@ const ESQUEMA = [
   ['riesgo.slAtr', 'num', 0.1, 20],
   ['riesgo.tpAtr', 'num', 0.1, 20],
   ['atr.periodo', 'int', 2, 200],
-  ['maxVelas.M1', 'int', 50, 5000], ['maxVelas.M5', 'int', 50, 5000],
-  ['maxVelas.M15', 'int', 50, 5000], ['maxVelas.M30', 'int', 50, 5000],
-  ['maxVelas.H1', 'int', 50, 5000], ['maxVelas.H4', 'int', 50, 5000],
-  ['maxVelas.D1', 'int', 50, 5000],
+  // tope alto: un mes de M5 son 8.640 velas (y de M1, 43.200)
+  ['maxVelas.M1', 'int', 50, 50000], ['maxVelas.M5', 'int', 50, 50000],
+  ['maxVelas.M15', 'int', 50, 50000], ['maxVelas.M30', 'int', 50, 50000],
+  ['maxVelas.H1', 'int', 50, 50000], ['maxVelas.H4', 'int', 50, 50000],
+  ['maxVelas.D1', 'int', 50, 50000],
 ];
 
 const _toma = (obj, ruta) => ruta.split('.').reduce((a, k) => (a == null ? undefined : a[k]), obj);
@@ -100,6 +101,9 @@ function validarDoc(entrada) {
 /* Documento -> configuración del motor (estrategia.js) */
 function docACfg(doc) {
   return {
+    /* nombre legible de la estrategia: viaja en la señal para que el
+       mensaje de Telegram diga QUÉ estrategia la generó */
+    nombre: `${doc.meta.nombre} v${doc.meta.version}`,
     simbolos: Array.isArray(doc.simbolos) ? doc.simbolos.slice() : [],
     tfZona: doc.zonas.tf, alasPivote: doc.zonas.alas,
     tolPivoteAtr: doc.zonas.tolPivoteAtr, tolPivoteRel: doc.zonas.tolPivoteRel,

@@ -15,6 +15,11 @@ const { EventEmitter } = require('events');
 
 const TFS = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
 
+/* Retención: el motor guarda UN MES por temporalidad y nunca más.
+   `maxVelas` del documento manda solo si pide MENOS que un mes. */
+const DIAS_RETENCION = 30;
+const barrasDeUnMes = (tf) => Math.ceil((DIAS_RETENCION * 86400) / (TFS[tf] || 900));
+
 class Estrategia extends EventEmitter {
   constructor(cfg) {
     super();
@@ -40,10 +45,15 @@ class Estrategia extends EventEmitter {
     return e;
   }
 
+  /* tope de velas por TF: un mes, o lo que pida el documento si es menor */
+  _maxVelas(tf) {
+    return Math.min(this.cfg.maxVelas[tf] || 300, barrasDeUnMes(tf));
+  }
+
   /* ---------- semilla de historia (velas del servidor) ---------- */
   setHistoria(simbolo, tf, velas) {
     const e = this._estado(simbolo);
-    const max = this.cfg.maxVelas[tf] || 300;
+    const max = this._maxVelas(tf);
     const arr = velas.slice(-max);
     /* El servidor incluye al final la vela EN FORMACIÓN. Sin quitarla
        queda congelada para siempre (mismo t bloquea el cierre real) y
@@ -103,7 +113,7 @@ class Estrategia extends EventEmitter {
     if (arr.length && arr[arr.length - 1].t >= vela.t) return; // duplicado/fuera de orden
     if (vela.t > e.ahora) e.ahora = vela.t;                    // reloj de mercado
     arr.push({ ...vela });
-    const max = this.cfg.maxVelas[tf] || 300;
+    const max = this._maxVelas(tf);
     if (arr.length > max) arr.shift();
 
     if (tf === this.cfg.tfSesgo) this._recalcSesgo(simbolo);
@@ -255,6 +265,7 @@ class Estrategia extends EventEmitter {
       const sl = this.cfg.slAtr * e.atr, tp = this.cfg.tpAtr * e.atr;
       this.emit('senal', {
         lado, fase, simbolo,
+        estrategia: this.cfg.nombre || 'estrategia',
         nivel: +z.nivel.toFixed(2),
         precio: +vela.c.toFixed(2),
         score, tfZona: this.cfg.tfZona, tfGatillo: this.cfg.tfToque,

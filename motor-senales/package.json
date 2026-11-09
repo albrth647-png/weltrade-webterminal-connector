@@ -5,7 +5,10 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "test": "node test_estrategia.js && node test_importador.js && node test_protocolo.mjs"
+    "test": "node test_estrategia.js && node test_importador.js && node test_protocolo.mjs && node test_flujo.mjs",
+    "validar:port": "node validacion/comparar.js validacion/py.json",
+    "validar:reglas": "node validar_reglas.js",
+    "demo:hibrida": "node validacion/demo_vivo.js"
   },
   "engines": {
     "node": ">=22"

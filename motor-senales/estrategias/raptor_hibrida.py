@@ -21,9 +21,15 @@ TODOS apagados por defecto: con defaults, scan_hibrida ≡ scan (test T0).
 Sin look-ahead: los pivotes solo existen `alas` velas después de formarse;
 sesgo/fases/zonas se calculan con velas CERRADAS al momento de la señal.
 
-Degradación honesta: si falta M15 no hay zonas/fases/confluencia; si falta H1
-no hay sesgo; si falta M5 no hay fase de zona. Las señales v2 salen SIEMPRE
-igual; `capas_activas` registra qué capas pudieron aplicarse.
+INDEPENDENCIA POR TEMPORALIDAD (por defecto, `independiente=True`): cada TF
+aplica la estrategia COMPLETA mirando SOLO sus propias velas. Una señal de M5
+calcula sus zonas, fases, sesgo y ATR en M5; la de M30 en M30. Ninguna TF lee
+velas de otra (`independiente=False` conserva el reparto histórico v1: zonas
+M15, fases M5 y sesgo H1 para todas las señales).
+
+Degradación honesta: si a una TF le faltan velas propias, sus capas quedan sin
+valor; las señales v2 salen SIEMPRE igual y `capas_activas` registra qué capas
+pudieron aplicarse (`zonas_por_tf`, `sesgo_por_tf`).
 """
 from __future__ import annotations
 
@@ -82,9 +88,17 @@ class ScoreParams:
 
 @dataclass
 class HibridaParams:
-    v2: Params = field(default_factory=Params)
+    # El núcleo se invoca con el catálogo COMPLETO en cada TF (avisos 2/3
+    # incluidos, como el vídeo 03 sobre M1). Para el reparto del vídeo 02
+    # («la 2 y la 3 no aplican a temporalidades menores») basta subir
+    # `emit_touches_from` a "M15".
+    v2: Params = field(default_factory=lambda: Params(emit_touches_from="M1"))
     zonas: ZonaParams = field(default_factory=ZonaParams)
     score: ScoreParams = field(default_factory=ScoreParams)
+    # INDEPENDENCIA POR TEMPORALIDAD (requisito del propietario): cada TF
+    # aplica la estrategia completa SOLO con sus velas. False = reparto v1
+    # histórico (zonas M15, fases M5, sesgo H1) para comparar.
+    independiente: bool = True
     # interruptores de filtro — TODOS OFF por defecto (contrato de no-choque)
     filtrar_sesgo: bool = False        # exige sesgo_h1 a favor (lateral deja pasar)
     filtrar_confluencia: bool = False  # exige confluencia a favor con una zona
@@ -297,7 +311,8 @@ def enriquecer(senales: pd.DataFrame, dfs: dict[str, pd.DataFrame],
     NO altera ninguna columna v2. Devuelve (df, capas_activas)."""
     p = params or HibridaParams()
     df = senales.copy()
-    capas = {"zonas": False, "fases": False, "sesgo": False}
+    capas = {"independiente": p.independiente, "zonas": False, "fases": False,
+             "sesgo": False, "zonas_por_tf": [], "sesgo_por_tf": []}
 
     for col in COLS_EXTRA:
         df[col] = None
@@ -310,20 +325,39 @@ def enriquecer(senales: pd.DataFrame, dfs: dict[str, pd.DataFrame],
     if df.empty:
         return df, capas
 
-    df_m15 = dfs.get("M15")
-    df_m5 = dfs.get("M5")
-    df_h1 = dfs.get("H1")
-    zonas, atr_m15 = (None,), (None,)
-    if df_m15 is not None and len(df_m15):
-        zonas, atr_m15 = detectar_zonas(df_m15, p.zonas)
-        capas["zonas"] = True
-    t_h1, est_h1 = (None, None)
-    if df_h1 is not None and len(df_h1):
-        t_h1, est_h1 = sesgo_h1_serie(df_h1, p.v2.ema_fast, 3)
-        capas["sesgo"] = True
+    # ── qué TF alimenta cada capa para una señal de TF `tf` ──────────────
+    # independiente=True  → la PROPIA TF (M5 solo mira M5, M30 solo mira M30)
+    # independiente=False → reparto histórico v1 (zonas M15, fases M5, sesgo H1)
+    def tf_zonas(tf: str) -> str:
+        return tf if p.independiente else "M15"
 
-    cache_fases: dict[int, list] = {}
-    m15_t = df_m15.index if df_m15 is not None else None
+    def tf_fases(tf: str) -> str:
+        return tf if p.independiente else "M5"
+
+    def tf_sesgo(tf: str) -> str:
+        return tf if p.independiente else "H1"
+
+    tfs_senal = [str(t) for t in df["timeframe"].unique()]
+    tfs_ctx = sorted({tf_zonas(t) for t in tfs_senal}
+                     | {tf_fases(t) for t in tfs_senal}
+                     | {tf_sesgo(t) for t in tfs_senal})
+
+    cache_zonas: dict[str, tuple] = {}
+    cache_sesgo: dict[str, tuple] = {}
+    for tf in tfs_ctx:
+        d = dfs.get(tf)
+        if d is None or len(d) == 0:
+            continue
+        cache_zonas[tf] = detectar_zonas(d, p.zonas)              # (zonas, atr)
+        cache_sesgo[tf] = sesgo_h1_serie(d, p.v2.ema_fast, 3)     # (t, estados)
+    if cache_zonas:
+        capas["zonas"] = True
+        capas["zonas_por_tf"] = sorted(cache_zonas)
+    if cache_sesgo:
+        capas["sesgo"] = True
+        capas["sesgo_por_tf"] = sorted(cache_sesgo)
+
+    cache_fases: dict[tuple, list] = {}
 
     for i, row in df.iterrows():
         t_sig = pd.Timestamp(row["time"])
@@ -338,8 +372,9 @@ def enriquecer(senales: pd.DataFrame, dfs: dict[str, pd.DataFrame],
         if precio_ref is None and tfdf_sig is not None and 0 <= int(row["bar_index"]) < len(tfdf_sig):
             precio_ref = float(tfdf_sig.iloc[int(row["bar_index"])]["close"])
 
-        # ---- CAPA E: sesgo H1 tolerante ---------------------------------
-        sesgo = sesgo_en(t_h1, est_h1, t_sig, tf_sig)
+        # ---- CAPA E: sesgo de la TF propia (EMA30 + pendiente) -----------
+        t_s, est_s = cache_sesgo.get(tf_sesgo(tf_sig), (None, None))
+        sesgo = sesgo_en(t_s, est_s, t_sig, tf_sig)
         df.at[i, "sesgo_h1"] = sesgo
         if sesgo in ("alza", "baja"):
             df.at[i, "sesgo_ok"] = (sesgo == "alza") == (dir_sig == "BUY")
@@ -353,31 +388,40 @@ def enriquecer(senales: pd.DataFrame, dfs: dict[str, pd.DataFrame],
             df.at[i, "gatillo_ok"] = bool((v["close"] > v["open"]) if dir_sig == "BUY" else (v["close"] < v["open"]))
 
         # ---- CAPAS A/B/C/D: zonas, fuerza, confluencia, fase -------------
-        if zonas is not None and m15_t is not None and len(m15_t):
-            j = min(int(m15_t.searchsorted(cierre_sig, side="right")) - 1, len(m15_t) - 1)
-            a15 = atr_m15[j] if 0 <= j < len(atr_m15) else np.nan
-            activas = _zonas_activas_en(zonas, cierre_sig)
-            if activas and np.isfinite(a15) and a15 > 0 and precio_ref is not None:
-                mejor = min(activas, key=lambda z: abs(precio_ref - z["nivel"]))
-                dist = abs(precio_ref - mejor["nivel"])
-                df.at[i, "dist_zona_atr"] = dist / a15
-                df.at[i, "zona_id"] = mejor["id"]
-                df.at[i, "zona_tipo"] = mejor["tipo"]
-                df.at[i, "zona_fuerza"] = mejor["fuerza"]
-                if dist <= p.zonas.confluencia_atr * a15:
-                    df.at[i, "confluencia"] = True
-                    favor = ((mejor["tipo"] == "resistencia") == (dir_sig == "SELL"))
-                    df.at[i, "confluencia_favor"] = bool(favor)
-                    # CAPA D: fase de zona (solo si la vela de la señal toca la zona en M5)
-                    if df_m5 is not None and len(df_m5) and mejor["id"] not in cache_fases:
-                        cache_fases[mejor["id"]] = fases_de_zona(df_m5, mejor, a15, p.zonas)
-                    cron = cache_fases.get(mejor["id"], [])
-                    # última fase de toque dentro del intervalo de la vela de la señal
-                    t0, t1 = t_sig, cierre_sig
-                    candidatos = [f for (tt, f, _) in cron if t0 <= tt < t1]
-                    if candidatos:
-                        df.at[i, "fase_zona"] = candidatos[-1]
-                        capas["fases"] = True
+        tz = tf_zonas(tf_sig)
+        zonas, atr_z = cache_zonas.get(tz, (None, None))
+        zdf = dfs.get(tz)
+        if zonas is not None and zdf is not None and len(zdf):
+            zt = zdf.index
+            j = int(zt.searchsorted(cierre_sig, side="right")) - 1
+            if j >= 0:
+                j = min(j, len(zt) - 1)
+                a_z = atr_z[j] if 0 <= j < len(atr_z) else np.nan
+                activas = _zonas_activas_en(zonas, cierre_sig)
+                if activas and np.isfinite(a_z) and a_z > 0 and precio_ref is not None:
+                    mejor = min(activas, key=lambda z: abs(precio_ref - z["nivel"]))
+                    dist = abs(precio_ref - mejor["nivel"])
+                    df.at[i, "dist_zona_atr"] = dist / a_z
+                    df.at[i, "zona_id"] = mejor["id"]
+                    df.at[i, "zona_tipo"] = mejor["tipo"]
+                    df.at[i, "zona_fuerza"] = mejor["fuerza"]
+                    if dist <= p.zonas.confluencia_atr * a_z:
+                        df.at[i, "confluencia"] = True
+                        favor = ((mejor["tipo"] == "resistencia") == (dir_sig == "SELL"))
+                        df.at[i, "confluencia_favor"] = bool(favor)
+                        # CAPA D: fase de zona, medida en la TF de fases del modo
+                        tff = tf_fases(tf_sig)
+                        fdf = dfs.get(tff)
+                        clave_fase = (tz, mejor["id"])
+                        if fdf is not None and len(fdf) and clave_fase not in cache_fases:
+                            cache_fases[clave_fase] = fases_de_zona(fdf, mejor, a_z, p.zonas)
+                        cron = cache_fases.get(clave_fase, [])
+                        # última fase de toque dentro del intervalo de la vela de la señal
+                        t0, t1 = t_sig, cierre_sig
+                        candidatos = [f for (tt, f, _) in cron if t0 <= tt < t1]
+                        if candidatos:
+                            df.at[i, "fase_zona"] = candidatos[-1]
+                            capas["fases"] = True
 
         # ---- CAPA G: score (ponderador, no portón) -----------------------
         s = float(p.score.peso_patron.get(row["pattern"], 10))
@@ -427,8 +471,20 @@ def scan_hibrida(dfs: dict[str, pd.DataFrame], params: HibridaParams | None = No
 
 
 def _scan_todos(dfs: dict[str, pd.DataFrame], p2: Params) -> pd.DataFrame:
-    """Escanear todas las TF presentes con el núcleo v2 (sin tocarlo)."""
-    partes = [scan(dfs[tf], tf, p2) for tf in ["M1", "M5", "M15", "M30", "H1", "H4"] if tf in dfs]
+    """Escanear todas las TF presentes con el núcleo v2 (sin tocarlo).
+    Cada TF se escanea con SUS velas y el resultado se apila; las TF sin velas
+    suficientes se omiten (concatenar un DataFrame vacío corrompía el dtype)."""
+    partes = []
+    for tf in ["M1", "M5", "M15", "M30", "H1", "H4"]:
+        d = dfs.get(tf)
+        if d is None or len(d) == 0:
+            continue
+        s = scan(d, tf, p2)
+        if len(s):
+            partes.append(s)
     if not partes:
-        return pd.DataFrame()
+        # columnas del contrato v2: el pipeline de abajo (y el informe)
+        # necesitan `time`/`timeframe`/... aunque no haya ni una señal
+        return pd.DataFrame(columns=["time", "bar_index", "timeframe", "direction", "kind",
+                                     "pattern", "entry", "invalidation", "broken_level"])
     return pd.concat(partes, ignore_index=True)

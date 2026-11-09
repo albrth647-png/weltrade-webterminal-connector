@@ -55,8 +55,13 @@ const _tokenValido = (dado, esperado) => {
 
 function crearServidor(getEstado, gestor, port = Number(process.env.PORT || 3000)) {
   if (!ESTADO_TOKEN) {
-    console.log('[servidor] AVISO: ESTADO_TOKEN no definido — /estado y la API de estrategia quedan abiertas (solo seguro en localhost).');
+    console.log('[servidor] AVISO: ESTADO_TOKEN no definido — /estado y la API de estrategia quedan SIN autenticación (solo seguro en localhost).');
   }
+  /* Sin ESTADO_TOKEN el servidor escucha SOLO en loopback: si el proceso se
+     expone en una IP pública sin token, cualquiera podía leer la última señal
+     y, peor, cambiar la estrategia activa con POST /estrategia/activar.
+     En Render/plataformas (PORT + RENDER) se abre igual, y MS_HOST manda. */
+  const HOST = process.env.MS_HOST || (ESTADO_TOKEN || process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
   const srv = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const ruta = url.pathname;
@@ -105,7 +110,7 @@ function crearServidor(getEstado, gestor, port = Number(process.env.PORT || 3000
     }
   });
   return new Promise((resolver) => {
-    srv.listen(port, () => resolver(srv));
+    srv.listen(port, HOST, () => resolver(srv));
   });
 }
 

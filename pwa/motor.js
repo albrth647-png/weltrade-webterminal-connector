@@ -274,8 +274,6 @@ export class Estrategia extends Emisor {
         precio: +vela.c.toFixed(2),
         score, tfZona: 'M15', tfGatillo: 'M5',
         sesgo: e.sesgo, fuerzaZona: z.fuerza, toques: z.toques,
-        sl: compra ? +(z.nivel - e.atr).toFixed(2) : +(z.nivel + e.atr).toFixed(2),
-        tp: compra ? +(vela.c + 2 * e.atr).toFixed(2) : +(vela.c - 2 * e.atr).toFixed(2),
         t: e.ahora,
         motivo: `${fase} en ${z.tipo} (fuerza ${z.fuerza}) con sesgo H1 al ${e.sesgo}`,
       });
@@ -341,7 +339,6 @@ export function formatearSenal(s) {
     `${icono} <b>${escTg(s.lado)} · ${escTg(s.simbolo)}</b>  (score ${s.score})`,
     `Fase: <b>${escTg(s.fase)}</b> · Sesgo H1: ${escTg(s.sesgo)}`,
     `Nivel (${escTg(s.tfZona)}): ${s.nivel} · Precio: ${s.precio}`,
-    `SL: ${s.sl} · TP: ${s.tp}`,
     `${escTg(s.motivo)}`,
     `Hora: ${hora} UTC`,
   ].join('\n');
