@@ -11,9 +11,11 @@ f_048, f_059) y `docs/estrategia/video_03_analisis.md`.
 > **Nomenclatura vigente desde 2026-11-09.** Este documento es la lectura del vídeo,
 > donde **R = reset** y **B = quiebre**. El propietario fijó después, sobre su propia
 > gráfica (`evidencia/capturas_usuario/ultima_captura.jpg`), que **el número es el toque
-> y la R es su ROMPIMIENTO**. Traducción: `2`/`2R` (toques) → `2`; `3`/`3R` → `3`;
-> `2B`/`2RB` → `2R`; `3B`/`3RB` → `3R`; la seductora (`1`/`1R`) → `1S` con
-> `seductora: true`. Se añaden `1` (aviso del 1.er toque) y `1R` (su rompimiento).
+> y la R es su ROMPIMIENTO**. Traducción final (catálogo completo): los toques siguen
+> siendo `1`/`2`/`3`; `2B` → `2R` y `2RB` → `2RB`; `3B` → `3R` y `3RB` → `3RB`; la
+> seductora (`1`/`1R` del vídeo) → `1S`. Se añaden `1` (aviso del 1.er toque) y `1R`
+> (su rompimiento sin reset). **La R es el rompimiento del toque y la B añade que la
+> secuencia venía reseteada** (`1RB`/`2RB`/`3RB`), como aparece escrito en su gráfica.
 > El motor emite ya la nomenclatura nueva; lo de abajo se conserva como fuente.
 
 ---
@@ -27,8 +29,9 @@ f_048, f_059) y `docs/estrategia/video_03_analisis.md`.
 | `2` | segundo toque de la EMA30 | **AVISO** | ✅ |
 | `2R` | rompimiento del nivel del 2.º toque («la mejor») | **ENTRADA** | ✅ (antes `2B`/`2RB`) |
 | `3` | tercer toque, tras superar el 2 | **AVISO** | ✅ |
-| `3R` | rompimiento del nivel del 3.er toque | **ENTRADA** | ✅ (antes `3B`/`3RB`) |
-| `1S` (seductora) | engaño sobre EMA50 + regreso + quiebre **con cuerpo** | **ENTRADA** | ✅ con `seductora: true`, apagada por defecto (`MS_SEDUCTORA=1`) |
+| `3R` | rompimiento del nivel del 3.er toque | **ENTRADA** | ✅ (antes `3B`) |
+| `1RB` `2RB` `3RB` | el mismo rompimiento cuando la secuencia venía de un reset («se salió, volvió y la hizo de nuevo») | **ENTRADA** | ✅ (antes `2RB`/`3RB`) |
+| `1S` (seductora) | engaño sobre EMA50 + regreso + quiebre **con cuerpo** | **ENTRADA** | ✅ encendida por defecto (`MS_SEDUCTORA=0` la apaga) |
 
 Frase que ordena todo (1:27–2:25): **«UNO DOS TRES ES TOQUE»** — los números son toques de
 EMA; **el quiebre es un sufijo**, no una estrategia aparte. Y 2/3 son **aviso**

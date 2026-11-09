@@ -201,7 +201,7 @@ console.log('\n=== D. RETARDO TOQUE -> ENTRADA: cuánto movimiento se pierde ===
     const senales = core.scan(df, tf, P);
     for (let i = 0; i < senales.length; i++) {
       const x = senales[i];
-      if (x.kind !== 'entry' || !/R$/.test(x.pattern)) continue;
+      if (x.kind !== 'entry' || !/R(B)?$/.test(x.pattern)) continue;
       const num = x.pattern[0];          // el toque lleva el mismo número
       let toque = null;
       for (let j = i - 1; j >= 0 && x.barIndex - senales[j].barIndex <= 6; j--) {

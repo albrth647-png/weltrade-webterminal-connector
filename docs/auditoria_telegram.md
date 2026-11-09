@@ -54,7 +54,9 @@ también los dejó de mostrar en la tarjeta, el log y la notificación.
 ```
 
 Salen por el evento `alerta` (no por `aviso`, que es el canal de logs y
-errores) y solo a Telegram con `MS_TELEGRAM_AVISOS=1`. Antes se descartaban
+errores) y a Telegram por defecto (`MS_TELEGRAM_TOQUES=0` —o el nombre viejo
+`MS_TELEGRAM_AVISOS=0`— los silencia y deja al móvil solo las entradas
+1R/2R/3R). Antes se descartaban
 antes de emitirse, porque el guard de precio se aplicaba a unos eventos que el
 núcleo crea con `entry = NaN`.
 

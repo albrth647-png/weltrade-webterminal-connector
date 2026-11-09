@@ -17,7 +17,9 @@ const A_PY = { '1': 'S', '1R': 'S', '1RB': 'S', '2': 'T2', '2R': 'T2', '3': 'T3'
 /* 1S = la seductora (antes salía como 1R). Con ruptura1=false el Node no emite
    1R (el rompimiento del 1.er toque es regla nueva), así que la equivalencia
    se mide sobre la seductora y los toques 2/3 y sus rompimientos. */
-const A_NODE = { '2': 'T2', '3': 'T3', '2R': 'B2', '3R': 'B3', '1S': 'S' };
+/* Las dos formas del Node (con y sin reset) caen en la misma etiqueta del
+   Python: lo que se compara es el EVENTO, no si la B le tocó o no. */
+const A_NODE = { '2': 'T2', '3': 'T3', '2R': 'B2', '2RB': 'B2', '3R': 'B3', '3RB': 'B3', '1S': 'S' };
 const normNode = (s) => (s.seductora ? 'S' : A_NODE[s.pattern] || null);
 
 const TFS = ['M5', 'M15', 'M30', 'H1'];

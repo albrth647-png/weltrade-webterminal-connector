@@ -17,16 +17,28 @@ const { docACfg, resumenDoc } = require('./doc_estrategia');
 const { GestorEstrategia } = require('./gestor_estrategia');
 const { crearServidor } = require('./servidor');
 const { enviarTelegram, formatearSenal, formatearAviso, telegramConfigurado, estadoTelegram } = require('./telegram');
+const { enviarEntradaUrgente, enviarNivelUrgente, ntfyConfigurado, estadoUrgente } = require('./urgente');
 const outbox = require('./outbox');
 
 const SIMBOLOS_ENV = (process.env.MS_SIMBOLOS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const SIN_TELEGRAM = process.env.MS_SIN_TELEGRAM === '1';
-const ENVIAR_AVISOS = process.env.MS_TELEGRAM_AVISOS === '1';
-/* Avisos de zona en tiempo real: APAGADOS por defecto. No son señales de la
-   estrategia (los toques son 1/2/3 y sus rompimientos 1R/2R/3R) y el mensaje
-   que salía los llamaba «toque» con un precio que no existía en el mercado.
-   MS_AVISO_INTRABAR=1 los enciende, ya con el formato correcto. */
-const AVISO_INTRABAR = process.env.MS_AVISO_INTRABAR === '1';
+/* Los TOQUES 1/2/3 (avisos «vigila este nivel») van a Telegram **por defecto**:
+   son parte del catálogo del propietario (1/2/3 toque · 1R/2R/3R rompimiento).
+   MS_TELEGRAM_TOQUES=0 los silencia y deja el móvil solo con las entradas;
+   MS_TELEGRAM_AVISOS=0 (nombre viejo) hace lo mismo. */
+const ENVIAR_TOQUES = process.env.MS_TELEGRAM_TOQUES !== '0' && process.env.MS_TELEGRAM_AVISOS !== '0';
+/* Etapa 1 de la entrega: aviso de zona EN EL TICK, cuando el precio llega a la
+   banda. No es una señal de la estrategia (los toques son 1/2/3 y sus
+   rompimientos 1R/2R/3R), es «el nivel está en juego ahora». Va ENCENDIDO
+   porque es lo único que llega antes de que el movimiento se haga;
+   MS_AVISO_INTRABAR=0 lo apaga. */
+const AVISO_INTRABAR = process.env.MS_AVISO_INTRABAR !== '0';
+/* Temporalidades que se envían al móvil. Por defecto SOLO M5: es la más rápida
+   y la única donde el rompimiento todavía se puede tomar (un 2RB de H1 llega
+   2 h después del toque). Las demás se siguen calculando, salen en consola y
+   en /estado, y no se envían. MS_TF_VIVO=M5,M15 para ampliar. */
+const TF_VIVO = process.env.MS_TF_VIVO || 'M5';
+const TFS_TELEGRAM = TF_VIVO.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
 /* Motor de señales: la HÍBRIDA manda (catálogo de Yoel + fases EARLY/MAIN/LATE).
    MS_MOTOR=v1 deja el baseline anterior para comparar. */
 const MOTOR = process.env.MS_MOTOR || 'hibrida';
@@ -47,7 +59,7 @@ const log = (nivel, msg, extra) => {
 const stats = {
   iniciado: Date.now(),
   ticks: 0, ticksUltimoMin: [], senales: 0, tn: 0, reconexiones: 0,
-  avisos: 0, ultimaAlerta: null, latencias: [],
+  avisos: 0, ultimaAlerta: null, latencias: [], filtradas: 0,
   ultimaSenal: null, estrategia: null, fuenteEstrategia: '', resembrando: false,
 };
 
@@ -78,6 +90,14 @@ function construirEstrategia(doc) {
       if (stats.latencias.length > 500) stats.latencias.shift();
     }
     log('SEÑAL', `${s.lado} ${s.simbolo} ${etq} score=${s.score} precio=${s.precio} latencia=${Number.isFinite(s.latenciaMs) ? s.latenciaMs + ' ms' : '—'} estrategia=${s.estrategia}`);
+    /* un 2RB de H1 llega 2 h después del toque: se calcula, se registra, pero
+       no se manda al móvil salvo que esté en MS_TF_VIVO */
+    const tfSenal = s.tfGatillo || s.tfZona;
+    if (tfSenal && !TFS_TELEGRAM.includes(tfSenal)) {
+      stats.filtradas++;
+      if (VERBOSO) log('INFO', `señal ${tfSenal} no enviada (MS_TF_VIVO=${TF_VIVO})`);
+      return;
+    }
     if (!SIN_TELEGRAM) {
       const texto = formatearSenal(s);
       try {
@@ -97,18 +117,25 @@ function construirEstrategia(doc) {
         log('ERROR', `telegram excepción: ${err.message}`);
       }
     }
+    /* CARRIL URGENTE: va aparte de Telegram y no se espera. Si Telegram tarda,
+       el móvil está en Doze o la cola tiene trabajo, esto suena igual. */
+    enviarEntradaUrgente(s).then((r) => {
+      if (r.ok) log('ENVÍO', 'carril urgente entregado (ntfy)');
+      else if (ntfyConfigurado()) log('AVISO', `carril urgente falló: ${r.motivo || r.error}`);
+    });
   });
 
   /* AVISOS de operación (2/2R/3/3R): «el precio llegó a la zona, ve a buscar
      la entrada». Van por su propio evento: antes se emitían por 'aviso', que
      es el canal de logs y errores, y además se descartaban antes de salir. */
   e.on('alerta', async (a) => {
-    if (a.origen === 'intrabar' && !AVISO_INTRABAR) return;   // opt-in
+    if (a.origen === 'intrabar' && !AVISO_INTRABAR) return;   // MS_AVISO_INTRABAR=0 lo apaga
+    if (a.tfZona && !TFS_TELEGRAM.includes(a.tfZona)) return;  // mismo filtro que las entradas
     stats.avisos++;
     stats.ultimaAlerta = a;
     const etq = a.origen === 'intrabar' ? 'zona' : `${a.patron}${a.fase ? ' ' + a.fase : ''}`;
     log('ALERTA', `${a.lado} ${a.simbolo} ${etq} (aviso, no entrada) ref=${a.precio} romper=${a.nivelRoto} latencia=${Number.isFinite(a.latenciaMs) ? a.latenciaMs + ' ms' : '—'}`);
-    if (ENVIAR_AVISOS && !SIN_TELEGRAM) {
+    if (ENVIAR_TOQUES && !SIN_TELEGRAM) {
       const texto = formatearAviso(a);
       try {
         /* prioridad 1: los avisos esperan detrás de las entradas. Los intrabar
@@ -123,6 +150,14 @@ function construirEstrategia(doc) {
       } catch (err) {
         log('ERROR', `telegram excepción (alerta): ${err.message}`);
       }
+    }
+    /* Etapa 1 al móvil, en el tick: el nivel está en juego. La confirmación
+       (1R/2R/3R, 1S) sigue saliendo al cierre de la vela. */
+    if (a.origen === 'intrabar') {
+      enviarNivelUrgente(a).then((r) => {
+        if (r.ok) log('ENVÍO', 'nivel en juego entregado (ntfy)');
+        else if (ntfyConfigurado()) log('AVISO', `nivel en juego falló: ${r.motivo || r.error}`);
+      });
     }
   });
   e.on('tn', (ev) => { stats.tn++; log('TN', `${ev.simbolo} zona ${ev.zona.tipo} ${ev.zona.nivel} cancelada (${ev.motivo})`); });
@@ -291,6 +326,8 @@ cliente.on('cerrar', () => {
     /* contadores internos del motor: emitidas / avisos / intrabar / suprimidas / viejas */
     motor: estrategia && estrategia.stats ? estrategia.stats : null,
     telegram: { ...estadoTelegram(), configurado: telegramConfigurado() && !SIN_TELEGRAM },
+    urgente: { ...estadoUrgente(), configurado: ntfyConfigurado() },
+    entrega: { tfs: TFS_TELEGRAM, filtradas: stats.filtradas, intrabar: AVISO_INTRABAR },
     outbox: outbox.tamano(),
     estrategia: stats.estrategia,
     fuenteEstrategia: stats.fuenteEstrategia,
@@ -312,5 +349,8 @@ process.on('SIGINT', () => { log('INFO', 'SIGINT — cerrando'); if (estrategia)
 if (!SIN_TELEGRAM && !telegramConfigurado()) {
   log('AVISO', 'TELEGRAM_TOKEN o TELEGRAM_CHAT sin definir en .env — las señales se quedan en consola, NO llegan a Telegram');
 }
-log('INFO', `motor de señales iniciado (motor ${MOTOR}, cuenta ${cliente.login} @ ${cliente.host}, telegram: ${SIN_TELEGRAM ? 'off' : telegramConfigurado() ? 'on' : 'sin configurar'})`);
+log('INFO', `motor de señales iniciado (motor ${MOTOR}, cuenta ${cliente.login} @ ${cliente.host}, telegram: ${SIN_TELEGRAM ? 'off' : telegramConfigurado() ? 'on' : 'sin configurar'}, toques 1/2/3: ${ENVIAR_TOQUES ? 'on' : 'off'}, carril urgente: ${ntfyConfigurado() ? 'ntfy' : 'solo alarma local'}, TF al móvil: ${TFS_TELEGRAM.join('/')}, nivel en juego: ${AVISO_INTRABAR ? 'on' : 'off'})`);
+if (!ntfyConfigurado()) {
+  log('AVISO', 'sin NTFY_TOPIC: el carril urgente queda en la alarma local del PC. Para push instantáneo en el móvil, define NTFY_TOPIC (y NTFY_URL si usas tu propio servidor).');
+}
 arrancar();

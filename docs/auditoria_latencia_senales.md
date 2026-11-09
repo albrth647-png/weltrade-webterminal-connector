@@ -56,7 +56,8 @@ Lo que sí explica lo que ves:
 
 **Corregido**: los toques se ramifican por `kind` antes del guard y salen por
 un evento propio, `alerta`, con su propio formato (nivel a romper, precio de
-referencia) y su propio interruptor (`MS_TELEGRAM_AVISOS=1`). Ya no comparten
+referencia) y su propio interruptor (`MS_TELEGRAM_TOQUES=0`, antes
+`MS_TELEGRAM_AVISOS=0`; por defecto sí se envían). Ya no comparten
 canal con los errores de escaneo.
 
 ### C2 · Alta — la entrada B nace después del movimiento
@@ -209,3 +210,36 @@ Los scripts usan `backtest_hibrida/datos/*.csv` (gitignored) y las mismas
 `hibridaParams` que el motor en vivo. `test_flujo.mjs` no necesita datos
 externos: genera una serie determinista, ancla la vela de prueba a «hace 30 s»
 y simula el Bot API con un `fetch` falso (sin red).
+
+
+## 6. Entrega en dos etapas (aplicado el 2026-11-09)
+
+El retardo medido no era de transporte: cierre → margen 3 s → timer 1 s → cola
+1,1 s ≈ **4 s**, con 0,001 ATR (p50) de precio perdido. Lo que llegaba tarde era
+la **decisión**, porque la entrada se confirma al cierre de la vela del
+rompimiento: 10 min (p50) en M5, 30 en M15, 60 en M30 y 120 en H1 desde el toque
+(443/122/62/42 casos; máximos 30/90/180/360 min). El precio recorrido en ese
+hueco: 0,04 ATR (p50), 0,41 (p75), 0,87 (p90).
+
+Cambios:
+
+1. **Etapa 1 intrabar encendida** (`MS_AVISO_INTRABAR`, antes opt-in): en el
+   tick en que el precio entra en la banda de una zona M5 sale «NIVEL EN JUEGO»,
+   con bid/ask reales y la distancia en ATR, una vez por zona y dirección cada
+   30 min.
+2. **Carril urgente** (`urgente.js`): push ntfy con prioridad `urgent` para las
+   entradas y `high` para la etapa 1, más alarma local en el PC (BEL o
+   `MS_ALARMA_CMD`). No pasa por Firebase, que es lo que retrasa las
+   notificaciones en Android. Telegram queda como registro e historial.
+3. **Filtro de temporalidades** (`MS_TF_VIVO`, por defecto `M5`): las señales de
+   M15/M30/H1 se siguen calculando y quedan en consola y `/estado`, pero no se
+   envían: llegaban con el movimiento hecho.
+4. **Contadores**: `/estado` publica `entrega` (TF activas, filtradas, intrabar)
+   y `urgente` (ntfy configurado, enviados, fallos).
+
+Pendiente y fuera del alcance del bot: **ejecutar**. La única forma de no llegar
+tarde del todo es dejar una orden stop en el nivel (entra sin que nadie mire) o
+entrar en el retesteo; este proyecto solo avisa, no opera.
+
+Verificación: `node test_urgente.mjs` (20 comprobaciones, incluido un POST real
+contra un servidor local) dentro de `npm test`.

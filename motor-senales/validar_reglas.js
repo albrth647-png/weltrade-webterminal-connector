@@ -18,6 +18,7 @@
                        (1S: NO es un rompimiento de toque, y no vale como R)
      R08 fase        : EARLY/MAIN/LATE o sin fase, nunca otra cosa
      R09 score       : 0..100
+     R10 reset       : el sufijo B (1RB/2RB/3RB) solo si la secuencia se reseteó
 
    Uso: node validar_reglas.js   (los 4 activos, histórico completo)
    ============================================================ */
@@ -28,7 +29,7 @@ const H = require('./raptor_hibrida');
 const BASE = path.join(__dirname, '..', 'backtest_hibrida', 'datos');
 const TFS = ['M5', 'M15', 'M30', 'H1'];
 const SIMS = ['FX_Vol_20', 'FX_Vol_40', 'SFX_Vol_20', 'SFX_Vol_40'];
-const CATALOGO = new Set(['1', '2', '3', '1R', '2R', '3R', '1S']);
+const CATALOGO = new Set(['1', '2', '3', '1R', '2R', '3R', '1RB', '2RB', '3RB', '1S']);
 const AVISOS = new Set(['1', '2', '3']);
 const P = { emaFast: 30, emaMid: 50, emaSlow: 100, slopeBars: 10, atrPeriod: 14,
   tolAtr: 0.10, swing: 8, maxBars: 6, bodyRatio: 0.50, bodyAtr: 0.30, fake: 12, fakePre: 5, maxDist: 2.0 };
@@ -104,6 +105,13 @@ for (const sim of SIMS) {
     if (!(s.score >= 0 && s.score <= 100)) { fallo('R09 score', s.score); continue; }
 
     if (s.kind === 'touch') continue;   // los avisos no entran: nada más que verificar
+
+    /* R10 — la B de 1RB/2RB/3RB es el reset de la secuencia, y solo eso:
+       si la etiqueta lleva B el evento tiene que venir reseteado, y al revés. */
+    if (/^[123]R/.test(s.pattern) && /RB$/.test(s.pattern) !== (s.reset === true)) {
+      fallo('R10 reset', `patrón ${s.pattern} con reset=${s.reset} (ciclo ${s.ciclo})`);
+      continue;
+    }
 
     /* R05/R06 — rompimiento del nivel de un toque (1R / 2R / 3R) */
     const quiebre = () => {

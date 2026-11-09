@@ -2,18 +2,18 @@
 /* ============================================================
    RAPTOR NÚCLEO v2 — port fiel de estrategias/raptor_strategy.py
    ------------------------------------------------------------
-   Vocabulario del propietario (captura 2026-11-09, SFX Vol 20 H1):
-   el NÚMERO es el toque de la EMA30 y la R es su ROMPIMIENTO.
-     · toques (aviso)      : 1, 2, 3
-     · rompimientos (entrada): 1R, 2R, 3R
-   El reset de la secuencia ya NO es un sufijo: viaja como dato del evento
-   (`reset`, `ciclo`), porque la R significa rompimiento, no reset.
-   La seductora (engaño sobre EMA50 + quiebre con cuerpo) NO es un rompimiento
-   de toque: lleva su propio código 1S (`seductora: true`). Antes salía como 1R
-   y el propietario la veía «al revés», porque en su gráfica la R es SIEMPRE el
-   cierre que rompe el nivel de un toque, a favor de la tendencia.
-   Además está APAGADA por defecto (`seductora: false`): su catálogo son las
-   tres estrategias con sus tres rompimientos. MS_SEDUCTORA=1 la enciende.
+   Catálogo completo del vídeo 03 (lo fijó el propietario el 2026-11-09):
+     · toques (aviso)        : 1, 2, 3
+     · rompimiento del toque : 1R, 2R, 3R
+     · rompimiento con reset : 1RB, 2RB, 3RB  (la B = la secuencia se reseteó:
+                               «se salió, volvió y la hizo de nuevo»)
+     · la seductora          : 1S (engaño sobre EMA50 + quiebre con cuerpo)
+   El número es el toque de la EMA30; la R es SIEMPRE el cierre que rompe su
+   nivel a favor de la tendencia, y la B añade que la jugada venía de un reset
+   (`reset: true`, `ciclo` ≥ 1). Antes todo rompimiento salía como `nR` y el
+   reset viajaba solo como dato; ahora va en la etiqueta, como en su gráfica.
+   La seductora lleva código propio (1S) porque no es el rompimiento de ningún
+   toque; `MS_SEDUCTORA=0` la apaga.
    EMA30 (zona) / EMA50 (techo «el límite») / EMA100 (tendencia).
 
    Cada valor numérico es un parámetro ajustable, igual que en
@@ -23,7 +23,7 @@
 const RANK = { M1: 0, M5: 1, M15: 2, M30: 3, H1: 4, H4: 5 };
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
 const TOUCH_PATTERNS = new Set(['1', '2', '3']);
-const ENTRY_PATTERNS = new Set(['1R', '2R', '3R', '1S']);
+const ENTRY_PATTERNS = new Set(['1R', '2R', '3R', '1RB', '2RB', '3RB', '1S']);
 
 const PARAMS = {
   emaFast: 30, emaMid: 50, emaSlow: 100,
@@ -34,7 +34,7 @@ const PARAMS = {
   fakeLookback: 12, fakePreBars: 5,
   resetAfterSignal: true, resetOnAbandonedExit: true,
   emitTouches: true, emitTouchesFrom: 'M15',
-  maxDistAtr: 2.0, ruptura1: true, seductora: false, newTrendGap: 60,
+  maxDistAtr: 2.0, ruptura1: true, seductora: true, etiquetaReset: true, newTrendGap: 60,
 };
 
 function params(over = {}) {
@@ -133,16 +133,19 @@ function scanBearish(o, h, l, c, p, tf) {
       }
     }
 
-    /* rompimiento pendiente del toque → 1R/2R/3R (vela COMPLETA:
-       el cierre queda más allá del nivel, la mecha no basta) */
+    /* rompimiento pendiente del toque → 1R/2R/3R, o 1RB/2RB/3RB si la
+       secuencia venía de un reset (vela COMPLETA: el cierre queda más allá
+       del nivel, la mecha no basta) */
     if (pend !== null && i > pend.idx) {
       if (exceeds[i] || i - pend.idx > p.maxBarsToBreak) {
         pend = null;
       } else if ((bodyBreak[i] || !p.requireBodyOnBreak) && c[i] < pend.refLow) {
+        const reset = cycle >= 1;
         events.push({
-          idx: i, kind: 'entry', pattern: `${pend.n}R`,
+          idx: i, kind: 'entry',
+          pattern: `${pend.n}R${p.etiquetaReset && reset ? 'B' : ''}`,
           entry: c[i], invalidation: pend.inval, broken: pend.refLow,
-          reset: cycle >= 1, ciclo: cycle,
+          reset, ciclo: cycle,
         });
         touches = 0; pend = null; lastTouchI = -1;
         if (p.resetAfterSignal) cycle++;
@@ -178,7 +181,7 @@ function scanBearish(o, h, l, c, p, tf) {
     }
 
     /* la seductora: engaño + regreso + quiebre con cuerpo. NO es la estrategia
-       1 (esa es el primer toque y su 1R): por eso va aparte y apagada. */
+       1 (esa es el primer toque y su 1R): por eso lleva código propio, 1S. */
     if (p.seductora && !fired && bodyBreak[i] && c[i] < e30[i]) {
       const desde = Math.max(0, i - p.fakeLookback);
       let k = -1;

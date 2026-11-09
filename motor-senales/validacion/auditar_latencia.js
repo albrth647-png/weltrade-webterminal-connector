@@ -76,7 +76,7 @@ for (const sym of SIMBOLOS) {
 
       /* 1R/2R/3R: el aviso del toque que lo origina está <= 6 velas antes
          (maxBarsToBreak); el toque lleva el mismo número que el rompimiento */
-      if (!/R$/.test(s.pattern)) continue;
+      if (!/R(B)?$/.test(s.pattern)) continue;
       const num = s.pattern[0];
       let j = i - 1, toque = null;
       while (j >= 0 && s.barIndex - senales[j].barIndex <= 6) {

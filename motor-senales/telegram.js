@@ -168,6 +168,15 @@ function formatearAviso(m) {
       `<b>6. Hora:</b> ${hora} UTC`,
     ].join('\n');
   }
+  /* El nivel del toque es el extremo de las 8 velas anteriores. Si la propia
+     vela del toque ya cerró más allá de él (7 % de los toques medidos), el
+     nivel queda DETRÁS del precio: decir «nivel a romper» sobre un nivel ya
+     superado parecía una señal invertida. Se nombra como lo que es. */
+  const nivelDetras = Number.isFinite(m.precio) && Number.isFinite(m.nivelRoto)
+    && (m.lado === 'COMPRA' ? m.nivelRoto <= m.precio : m.nivelRoto >= m.precio);
+  const campoNivel = nivelDetras
+    ? `<b>5. Nivel del toque:</b> ${_fmtPrecio(m.nivelRoto)} — ya superado por la vela del toque; la entrada llega con el cierre de continuación`
+    : `<b>5. Nivel a romper:</b> ${_fmtPrecio(m.nivelRoto)}`;
   return [
     `⚠️ <b>AVISO ${escTg(m.patron)} — no es entrada</b>`,
     `${icono} <b>${escTg(m.lado)}</b>`,
@@ -175,7 +184,7 @@ function formatearAviso(m) {
     `<b>2. Temporalidad:</b> ${escTg(m.tfZona || '—')}`,
     `<b>3. Zona:</b> ${zona}`,
     `<b>4. Precio de referencia:</b> ${_fmtPrecio(m.precio)} (cierre de la vela)`,
-    `<b>5. Nivel a romper:</b> ${_fmtPrecio(m.nivelRoto)}`,
+    campoNivel,
     `<b>6. Hora:</b> ${hora} UTC`,
   ].join('\n');
 }

@@ -3,7 +3,7 @@
 Motor de señales para índices sintéticos de Weltrade, construido sobre el
 protocolo MT5 revertido en este repo (`conector/`). El motor en vivo es la
 **RAPTOR HÍBRIDA**: el catálogo del propietario (toques 1 · 2 · 3, rompimientos
-1R · 2R · 3R, seductora 1S) traído de `estrategias/raptor_hibrida.py` a Node, con las zonas
+1R · 2R · 3R · 1RB · 2RB · 3RB, seductora 1S) traído de `estrategias/raptor_hibrida.py` a Node, con las zonas
 fractales, las fases **EARLY / MAIN / LATE**, el sesgo EMA30 y el score.
 Cada temporalidad aplica la estrategia completa con sus propias velas.
 
@@ -35,7 +35,8 @@ GESTOR DE ESTRATEGIA (gestor_estrategia.js)
        (si no existe: estrategias/raptor_default.json)
    ▼
 MOTOR HÍBRIDO (estrategia_hibrida.js + raptor_hibrida.js + raptor_core.js)
-   ├── CATÁLOGO 1 · 2 · 3 (toque) · 1R · 2R · 3R (rompimiento) · 1S (seductora, solo con MS_SEDUCTORA=1)
+   ├── CATÁLOGO 1 · 2 · 3 (toque) · 1R · 2R · 3R (rompimiento) ·
+   │            1RB · 2RB · 3RB (rompimiento con reset) · 1S (la seductora; MS_SEDUCTORA=0 la apaga)
    ├── ZONAS   pivotes fractales confirmados, refuerzo y TN
    ├── FASES   EARLY (1er contacto) · MAIN (retest tras excursión) · LATE
    ├── SESGO   EMA30 con pendiente + gatillo direccional (por TF)
@@ -181,7 +182,8 @@ Alternativa sin límite de sueño: **Oracle Cloud Always Free** (2 OCPU/12 GB).
 `MS_AVISO_INTRABAR=1` enciende el aviso de que el precio ha llegado a la banda de
 una zona fractal (`0,15 × ATR` de M5). **No es una señal de la estrategia** — esas
 son los toques `1 · 2 · 3` y sus rompimientos `1R · 2R · 3R` — y el mensaje lo dice
-(la seductora va aparte, como `1S`, porque no es el rompimiento de ningún toque)
+(el rompimiento del toque lleva `R`, o `RB` si la secuencia venía de un reset; la seductora va
+aparte, como `1S`, porque no es el rompimiento de ningún toque)
 explícitamente. Sale como máximo una vez por símbolo y dirección cada 30 minutos, y
 lleva la cotización real (ask al comprar, bid al vender), no el punto medio
 `(bid+ask)/2` que se enviaba antes.
@@ -200,3 +202,33 @@ otro. Ahora:
 - `_loteValido()` descarta el lote si su último cierre se desvía más de un 20 %
   del precio vivo del símbolo (FX Vol 20 ~118.000 · SFX Vol 20 ~35.300: eso no
   es volatilidad, es un cruce).
+
+
+## Entrega en dos etapas y carril urgente (2026-11-09)
+
+El motor confirmaba la entrada al **cierre** de la vela del rompimiento: medido,
+eso son 10 min (p50) en M5, 30 en M15, 60 en M30 y 120 en H1 desde el toque que
+arma el nivel. El transporte nunca fue el problema (~4 s de cadena completa y
+0,001 ATR de precio perdido al leer el mensaje): el problema es **cuándo nace la
+señal**. Por eso ahora hay dos etapas y dos canales:
+
+| Etapa | Cuándo | Canal | Prioridad |
+|---|---|---|---|
+| 1 · **NIVEL EN JUEGO** | en el tick en que el precio entra en la banda de la zona (M5) | ntfy + alarma local | `high` |
+| 2 · **entrada confirmada** (1R/2R/3R, 1RB/2RB/3RB, 1S) | al cierre de la vela | Telegram + ntfy + alarma local | `urgent` |
+
+Variables nuevas:
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `NTFY_TOPIC` | — (vacío) | tema de ntfy; sin él, el carril urgente queda en la alarma local |
+| `NTFY_URL` | `https://ntfy.sh` | tu servidor ntfy si lo autoalojas |
+| `NTFY_TOKEN` | — | token `Bearer` si el tema es privado |
+| `MS_ALARMA` | encendida | `0` quita el pitido del PC |
+| `MS_ALARMA_CMD` | — | comando de sonido propio (p. ej. `mpv alarma.mp3`) |
+| `MS_AVISO_INTRABAR` | encendido | `0` apaga la etapa 1 |
+| `MS_TF_VIVO` | `M5` | temporalidades que se envían al móvil; el resto se calcula y se registra |
+
+La etapa 1 **no es una entrada**: avisa de que el nivel está en juego ahora y que
+la confirmación llega al cierre. Así se ve el precio llegar en vez de enterarse
+cuando ya se fue.

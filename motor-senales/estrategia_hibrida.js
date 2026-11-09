@@ -22,10 +22,10 @@ const core = require('./raptor_core');
 const H = require('./raptor_hibrida');
 const VERBOSO = process.env.MS_VERBOSO === '1';
 /* La seductora (engaño sobre EMA50 + regreso + cuerpo) NO es ninguna de las
-   tres estrategias que el propietario marca: su catálogo son 1/2/3 (toques) y
-   sus rompimientos 1R/2R/3R. Apagada por defecto; MS_SEDUCTORA=1 la enciende
-   con su código propio 1S (nunca como R). */
-const SEDUCTORA = process.env.MS_SEDUCTORA === '1';
+   tres estrategias del propietario — 1/2/3 son toques y sus rompimientos
+   1R/2R/3R, 1RB/2RB/3RB —, pero el catálogo del vídeo 03 la incluye, así que va
+   ENCENDIDA; MS_SEDUCTORA=0 la apaga. Sale con su código propio 1S, nunca como R. */
+const SEDUCTORA = process.env.MS_SEDUCTORA !== '0';
 
 const TFS = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
 const DIAS_RETENCION = 30;

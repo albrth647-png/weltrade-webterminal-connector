@@ -18,10 +18,13 @@ sufijos dicen qué pasó después:
 | `2R` | rompimiento del nivel del 2.º toque | **ENTRADA** (la mejor) |
 | `3` | tercer toque tras superar el segundo | **AVISO** |
 | `3R` | rompimiento del nivel del 3.er toque | **ENTRADA** |
-| `1S` | la seductora (engaño sobre EMA50 + quiebre con cuerpo) — **no** es el rompimiento de un toque | **ENTRADA** (con `seductora: true`) |
+| `1RB` `2RB` `3RB` | el rompimiento del toque n cuando la secuencia venía de un reset | **ENTRADA** |
+| `1S` | la seductora (engaño sobre EMA50 + quiebre con cuerpo) — **no** es el rompimiento de un toque | **ENTRADA** (encendida por defecto; `MS_SEDUCTORA=0` la apaga) |
 
 **La R es ROMPIMIENTO, no reset.** El reset (la jugada repetida en la misma
-dirección) ya no viaja en la etiqueta: va como dato del evento (`reset`, `ciclo`).
+dirección) se escribe con la **B**: `1R` es el rompimiento de un toque limpio y
+`1RB`/`2RB`/`3RB` el mismo rompimiento cuando la secuencia ya se había reseteado
+(«se salió, volvió y la hizo de nuevo»). Además viaja como dato (`reset`, `ciclo`).
 
 Consecuencias que obligan a etiquetar:
 
@@ -38,7 +41,7 @@ Consecuencias que obligan a etiquetar:
 El motor en vivo **es la híbrida**, no la v1 con fases renombradas:
 
 ```
-raptor_core.js      catálogo 1/2/3 (toques) · 1R/2R/3R (sus rompimientos) · 1S (seductora)
+raptor_core.js      catálogo 1/2/3 (toques) · 1R/2R/3R y 1RB/2RB/3RB (sus rompimientos, con y sin reset) · 1S (seductora)
 raptor_hibrida.js   zonas fractales + fuerza + TN, fases EARLY/MAIN/LATE, sesgo, score
 estrategia_hibrida.js  motor en vivo: velas → señal con patrón + fase
 ```
@@ -123,18 +126,19 @@ Consecuencias aplicadas en el motor:
 | Antes | Ahora |
 |---|---|
 | `2` / `2R` = toque (R = reset) | `2` = toque; `2R` = **rompimiento** |
-| `2B` / `2RB` = rompimiento | `2R` |
-| `3B` / `3RB` = rompimiento | `3R` |
+| `2B` / `2RB` = rompimiento | `2R` / `2RB` |
+| `3B` / `3RB` = rompimiento | `3R` / `3RB` |
 | `1` / `1R` = la seductora (R = reset) | `1S` con `seductora: true`; `1` = primer toque (aviso) |
 | la seductora metida en la R del rompimiento | fuera del catálogo de R: `1R` es SIEMPRE el rompimiento del 1.er toque |
 | el 1.er toque no emitía ni se rompía | `1` (aviso) y `1R` (entrada) |
-| reset en la etiqueta | `reset` / `ciclo` en el evento |
+| reset en la etiqueta | `reset` / `ciclo` en el evento **y** sufijo `B` en el rompimiento (`1RB`/`2RB`/`3RB`) |
 
 Las tres R son, cada una, el **rompimiento de su estrategia**: `1R` → la 1,
-`2R` → la 2, `3R` → la 3. No hay más R en el catálogo.
+`2R` → la 2, `3R` → la 3, y con `B` cuando el rompimiento llega tras un reset
+(`1RB`/`2RB`/`3RB`). No hay más R en el catálogo.
 
-El **reset no se envía como señal**: viaja como dato, así que quitar la R de
-reset no pierde información. El Python de referencia sigue con su vocabulario
+El **reset no se envía como señal de operación**: se escribe en la etiqueta (`B`)
+y viaja como dato, así que se distingue sin confundirlo con un rompimiento nuevo. El Python de referencia sigue con su vocabulario
 antiguo: no se reescribe, se traduce al comparar.
 
 ## 7. La seductora salió del `1R` (2026-11-09, tras revisar todas las R)
@@ -154,9 +158,8 @@ era la **etiqueta**: `1R` se usaba para dos jugadas distintas.
   donde no hay ningún toque ni nivel que romper.
 
 Ahora la seductora va como **`1S`** y `R` significa solo rompimiento de toque.
-Además está **apagada por defecto**: el catálogo del propietario son las tres
-estrategias con sus tres rompimientos. `MS_SEDUCTORA=1` la vuelve a encender
-(siempre como `1S`, nunca como `R`).
+Va con **código propio y encendida por defecto**, porque el catálogo del vídeo 03
+la incluye; `MS_SEDUCTORA=0` la apaga. Siempre como `1S`, nunca como `R`.
 `validar_reglas.js` ya no acepta el atajo «si es `1R`, prueba la seductora»:
 toda `R` tiene que pasar la ruptura estricta (R05) y, además, el nivel que se
 manda en el mensaje tiene que ser el que se rompió (R06b).

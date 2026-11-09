@@ -15,10 +15,11 @@ const core = require('./raptor_core');
 const TF_SEGUNDOS = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
 
 /* «el rompimiento del 2.º toque, por encima de cualquier cosa, ES LA MEJOR»
-   (v3 4:21-4:50, que allí se llama 2B/2RB y aquí es la 2R: R = rompimiento) */
+   (v3 4:21-4:50: la 2B/2RB). El reset (sufijo B) no cambia el peso: la 2RB
+   también pesa 40, porque es la misma jugada repetida. */
 const PESO_PATRON_DEFAULT = {
-  '2R': 40,
-  '1R': 30, '3R': 30, '1S': 30,
+  '2R': 40, '2RB': 40,
+  '1R': 30, '3R': 30, '1RB': 30, '3RB': 30, '1S': 30,
   '1': 10, '2': 10, '3': 10,
 };
 
