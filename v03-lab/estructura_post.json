@@ -1,0 +1,30 @@
+{
+  "generado": "2026-11-16",
+  "series": 16,
+  "total": 891,
+  "by": {
+    "1ER": 232,
+    "2ER": 159,
+    "2EBR": 82,
+    "2E": 101,
+    "2EB": 53,
+    "1E": 154,
+    "3E": 30,
+    "3EB": 16,
+    "3ER": 38,
+    "3EBR": 26
+  },
+  "porTendencia": {
+    "ALCISTA": 455,
+    "BAJISTA": 436
+  },
+  "filtros": {
+    "sinImpulso": 80531,
+    "sobreTecho": 1066,
+    "retrocesoInvalido": 6362,
+    "sinReversion": 6312,
+    "caducidad": 40,
+    "noRompe": 11041,
+    "sinAlineacion": 931
+  }
+}

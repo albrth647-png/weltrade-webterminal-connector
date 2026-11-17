@@ -1,0 +1,25 @@
+{
+  "generado": "2026-11-16",
+  "series": 16,
+  "total": 1822,
+  "by": {
+    "1E": 406,
+    "2E": 298,
+    "1ER": 360,
+    "2ER": 262,
+    "2EBR": 115,
+    "2EB": 129,
+    "3E": 94,
+    "3EB": 37,
+    "3ER": 81,
+    "3EBR": 40
+  },
+  "filtros": {
+    "sinImpulso": 80531,
+    "sobreTecho": 1066,
+    "retrocesoInvalido": 6362,
+    "sinReversion": 6312,
+    "caducidad": 40,
+    "noRompe": 11041
+  }
+}

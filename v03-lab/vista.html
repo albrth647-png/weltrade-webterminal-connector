@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vídeo 03 · vista del motor</title>
+<style>
+  :root{
+    --fondo:#0b0e14; --panel:#121722; --panel2:#161d2b; --borde:#243044;
+    --texto:#e6edf7; --tenue:#8b9ab1; --verde:#26a69a; --rojo:#ef5350;
+    --ema30:#e8eef7; --ema50:#f0b429; --ema100:#4aa3ff; --acento:#7ee787;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--fondo);color:var(--texto);font:13px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+  header{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--borde);flex-wrap:wrap}
+  .marca{font-weight:700;letter-spacing:.2px}
+  .marca span{color:var(--tenue);font-weight:400}
+  select,button{background:var(--panel2);color:var(--texto);border:1px solid var(--borde);border-radius:6px;padding:5px 8px;font:inherit}
+  button{cursor:pointer}
+  button:hover{border-color:#3a4c68}
+  .precio{display:flex;align-items:baseline;gap:7px;padding-left:6px}
+  .precio b{font-size:19px;font-variant-numeric:tabular-nums}
+  .precio .delta{font-size:12px;font-variant-numeric:tabular-nums}
+  .latido{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--tenue);font-size:12px}
+  .punto{width:8px;height:8px;border-radius:50%;background:var(--verde);box-shadow:0 0 0 0 rgba(38,166,154,.6)}
+  .punto.vivo{animation:pulso 2.4s infinite}
+  @keyframes pulso{0%{box-shadow:0 0 0 0 rgba(38,166,154,.55)}70%{box-shadow:0 0 0 7px rgba(38,166,154,0)}100%{box-shadow:0 0 0 0 rgba(38,166,154,0)}}
+  .punto.malo{background:var(--rojo)}
+  .cuerpo{flex:1;display:flex;min-height:0}
+  main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}
+  #lienzo{flex:1;width:100%;display:block;cursor:crosshair}
+  .pie{padding:4px 12px;border-top:1px solid var(--borde);color:var(--tenue);font-size:11.5px;display:flex;gap:14px;flex-wrap:wrap;background:var(--panel)}
+  aside{width:322px;flex:none;border-left:1px solid var(--borde);background:var(--panel);overflow-y:auto;padding:10px}
+  aside section{margin-bottom:14px}
+  aside h3{margin:0 0 7px;font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--tenue);font-weight:600}
+  .activos{display:grid;gap:5px}
+  .activo{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--borde);border-radius:7px;background:var(--panel2);cursor:pointer}
+  .activo:hover{border-color:#3a4c68}
+  .activo.on{border-color:var(--acento);box-shadow:inset 0 0 0 1px rgba(126,231,135,.25)}
+  .activo .nom{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .activo .px{font-variant-numeric:tabular-nums;font-weight:600}
+  .activo .nv{color:var(--tenue);font-size:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .capas{display:flex;flex-wrap:wrap;gap:8px}
+  .capas label{display:flex;align-items:center;gap:5px;background:var(--panel2);border:1px solid var(--borde);border-radius:6px;padding:4px 7px;cursor:pointer;user-select:none}
+  .capas .sw{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{background:var(--panel2);border:1px solid var(--borde);border-radius:999px;padding:2px 8px;font-size:11.5px;color:var(--tenue);font-variant-numeric:tabular-nums}
+  .chip b{color:var(--texto);font-weight:600}
+  .espera{font-size:12px;color:var(--tenue);display:grid;gap:4px}
+  .espera div{display:flex;gap:6px;justify-content:space-between;border-bottom:1px dashed rgba(255,255,255,.06);padding-bottom:3px}
+  .espera b{color:var(--texto);font-weight:600;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed}
+  th,td{text-align:right;padding:2px 3px;border-bottom:1px solid rgba(255,255,255,.05);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  th:nth-child(1),td:nth-child(1){width:38px}
+  th:nth-child(2),td:nth-child(2){width:30px}
+  th:nth-child(3),td:nth-child(3){width:20px}
+  th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5),th:nth-child(6),td:nth-child(6){width:60px}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--tenue);font-weight:600;position:sticky;top:0;background:var(--panel)}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:rgba(126,231,135,.07)}
+  tbody tr.on{background:rgba(126,231,135,.12)}
+  .tabla-caja{max-height:186px;overflow-y:auto;border:1px solid var(--borde);border-radius:7px}
+  .compra{color:var(--verde)} .venta{color:var(--rojo)}
+  .leyenda{font-size:11.5px;color:var(--tenue);display:grid;gap:4px}
+  .leyenda code{background:var(--panel2);border:1px solid var(--borde);border-radius:4px;padding:0 4px;color:var(--texto)}
+  .tip{position:absolute;pointer-events:none;background:rgba(8,11,17,.95);border:1px solid var(--borde);border-radius:7px;padding:7px 9px;font-size:11.5px;line-height:1.5;min-width:168px;z-index:5;font-variant-numeric:tabular-nums}
+  .tip.oculto{display:none}
+  .tip .h{color:var(--tenue);margin-bottom:3px}
+  .aviso{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#3a1418;border:1px solid #7a2b31;color:#ffb4b4;padding:6px 12px;border-radius:7px;font-size:12px;display:none;z-index:6}
+  .aviso.on{display:block}
+</style>
+</head>
+<body>
+<header>
+  <div class="marca">Vídeo 03 <span>· Sifotrader</span></div>
+  <select id="sim" title="activo"></select>
+  <select id="tf" title="temporalidad">
+    <option>M1</option><option>M5</option><option>M15</option><option>H1</option>
+  </select>
+  <div class="precio"><b id="ultimo">—</b><span class="delta" id="delta" title="cierre de la última vela frente a la anterior"></span></div>
+  <span class="latido"><i class="punto" id="punto"></i><span id="latidoTxt">conectando…</span></span>
+  <button id="verUltimo" title="volver al presente">Último</button>
+</header>
+
+<div class="cuerpo">
+  <main>
+    <canvas id="lienzo"></canvas>
+    <div class="tip oculto" id="tip"></div>
+    <div class="aviso" id="aviso"></div>
+    <div class="pie" id="pie"></div>
+  </main>
+
+  <aside>
+    <section>
+      <h3>Activos · último cierre por símbolo</h3>
+      <div class="activos" id="activos"></div>
+    </section>
+
+    <section>
+      <h3>Capas</h3>
+      <div class="capas">
+        <label><input type="checkbox" id="cRoturas" checked> roturas</label>
+        <label><input type="checkbox" id="cToques" checked> toques</label>
+        <label><i class="sw" style="background:var(--ema30)"></i><input type="checkbox" id="e30" checked> EMA 30</label>
+        <label><i class="sw" style="background:var(--ema50)"></i><input type="checkbox" id="e50" checked> EMA 50</label>
+        <label><i class="sw" style="background:var(--ema100)"></i><input type="checkbox" id="e100" checked> EMA 100</label>
+      </div>
+    </section>
+
+    <section>
+      <h3>Ahora el motor espera</h3>
+      <div class="espera" id="espera">—</div>
+    </section>
+
+    <section>
+      <h3>Lo que ha hecho en esta serie</h3>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section>
+      <h3>Últimos eventos · pulsa para ir</h3>
+      <div class="tabla-caja">
+        <table>
+          <thead><tr><th>hora</th><th>cód</th><th>L</th><th>precio</th><th>stop</th><th>nivel</th></tr></thead>
+          <tbody id="tabla"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h3>Leyenda del vídeo</h3>
+      <div class="leyenda">
+        <div><code>1</code> engaño + rotura (la seductora)</div>
+        <div><code>2</code> / <code>3</code> entradas al 2.º y 3.er toque</div>
+        <div><code>2B</code> / <code>3B</code> toque + rotura</div>
+        <div><code>R</code> reset de la secuencia: la 1/2/3 vuelve a empezar</div>
+        <div>precio = cierre de la vela · stop = extremo del toque · nivel = mínimo/máximo a romper</div>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 2) => (n === null || n === undefined || !Number.isFinite(n)) ? '—'
+  : n.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
+const hora = (t, tf) => {
+  const d = new Date(t);
+  const hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0');
+  if (tf === 'H1') return d.getDate().toString().padStart(2, '0') + '/' + (d.getMonth() + 1) + ' ' + hh + 'h';
+  return hh + ':' + mm;
+};
+const fecha = (t) => new Date(t).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+const S = {
+  sim: '', tf: 'M5', d: null, ini: 0, cnt: 220, sigue: true,
+  roturas: true, toques: true, emas: { 30: true, 50: true, 100: true },
+  sel: null, hover: -1, arrastre: null, activos: [], error: '',
+};
+
+const cv = $('lienzo'), ctx = cv.getContext('2d');
+let W = 0, H = 0, dpr = Math.min(2, window.devicePixelRatio || 1);
+
+function medir() {
+  const r = cv.getBoundingClientRect();
+  W = Math.max(320, Math.floor(r.width));
+  H = Math.max(240, Math.floor(r.height));
+  cv.width = Math.floor(W * dpr);
+  cv.height = Math.floor(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+
+/* ---------- datos ---------- */
+async function cargar() {
+  try {
+    const r = await fetch('/api/velas?simbolo=' + encodeURIComponent(S.sim) + '&tf=' + S.tf + '&barras=3000');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    const previo = S.d;
+    S.d = j;
+    if (j.ahora != null) S.ahora = j.ahora;
+    S.error = '';
+    $('aviso').classList.remove('on');
+    if (S.sigue || !previo || previo.simbolo !== j.simbolo || previo.tf !== j.tf) {
+      S.ini = Math.max(0, j.velas.length - S.cnt);
+    } else {
+      S.ini = Math.max(0, Math.min(j.velas.length - S.cnt, S.ini));
+    }
+    pintarCabecera();
+    pintarPanel();
+    draw();
+    $('punto').classList.add('vivo');
+    $('punto').classList.remove('malo');
+    const f = frescura();
+    $('latidoTxt').textContent = f.atrasado
+      ? 'motor parado · último tick ' + hora(S.d.ahora, S.d.tf) + ' (' + hace(f.retraso) + ')'
+      : (f.formando ? 'vela en curso · ' : '') + 'actualizado ' + new Date().toLocaleTimeString('es-ES');
+    if (f.atrasado) { $('punto').classList.remove('vivo'); $('punto').classList.add('malo'); }
+  } catch (e) {
+    S.error = e.message;
+    $('aviso').textContent = 'Sin datos: ' + e.message;
+    $('aviso').classList.add('on');
+    $('punto').classList.add('malo');
+    $('punto').classList.remove('vivo');
+    $('latidoTxt').textContent = 'sin conexión';
+  }
+}
+
+async function cargarActivos() {
+  try {
+    const e = await (await fetch('/api/estado')).json();
+    const nombres = Object.keys(e.simbolos || {});
+    if (!nombres.length) return;
+    S.activos = await Promise.all(nombres.map(async (n) => {
+      try {
+        const j = await (await fetch('/api/velas?simbolo=' + encodeURIComponent(n) + '&tf=' + S.tf + '&ultima=1')).json();
+        return { nombre: n, precio: j.ultima ? j.ultima.c : null, n: j.n || 0, sd: j.sd, error: j.error || '' };
+      } catch (err) { return { nombre: n, precio: null, n: 0, error: err.message }; }
+    }));
+    const sel = $('sim');
+    const activo = S.sim;
+    sel.innerHTML = S.activos.map((a) => '<option>' + a.nombre + '</option>').join('');
+    if (activo) sel.value = activo;
+    pintarActivos();
+  } catch (e) { /* el selector conserva lo que tenía */ }
+}
+
+/* ---------- cabecera y panel ---------- */
+const TF_MS = { M5: 3e5, M15: 9e5, M30: 18e5, H1: 36e5 };
+const hace = (ms) => {
+  if (!Number.isFinite(ms)) return '';
+  if (ms < 6e4) return 'hace ' + Math.round(ms / 1e3) + ' s';
+  if (ms < 36e5) return 'hace ' + Math.round(ms / 6e4) + ' min';
+  return 'hace ' + (ms / 36e5).toFixed(1).replace('.', ',') + ' h';
+};
+
+/* «formando» = el último tick del motor cae dentro de la última vela y es reciente.
+   «atrasado» = el motor lleva dos velas o más sin ticks (se mide contra el reloj real:
+   si el motor se cae, su propio «ahora» se queda congelado y no sirve de referencia). */
+function frescura() {
+  const d = S.d;
+  if (!d || d.ahora == null) return { formando: false, atrasado: false, retraso: null };
+  const ult = d.velas[d.velas.length - 1].t;
+  const paso = TF_MS[d.tf] || 3e5;
+  const retraso = Date.now() - d.ahora;
+  return {
+    formando: retraso < paso && d.ahora >= ult,
+    atrasado: retraso >= paso * 2,
+    retraso,
+  };
+}
+
+function pintarCabecera() {
+  const v = S.d.velas;
+  const ult = v[v.length - 1];
+  $('ultimo').textContent = fmt(ult.c);
+  const antes = v.length > 1 ? v[v.length - 2].c : null;
+  const dif = antes === null ? null : ult.c - antes;
+  const d = $('delta');
+  if (dif === null) { d.textContent = ''; }
+  else {
+    const pct = antes ? (dif / antes) * 100 : 0;
+    d.textContent = (dif >= 0 ? '▲ ' : '▼ ') + fmt(Math.abs(dif)) + ' (' + fmt(Math.abs(pct)) + ' %)';
+    d.className = 'delta ' + (dif >= 0 ? 'compra' : 'venta');
+  }
+}
+
+function pintarActivos() {
+  $('activos').innerHTML = S.activos.map((a) => {
+    const on = a.nombre === S.sim ? ' on' : '';
+    const px = a.error ? '—' : fmt(a.precio);
+    const sd = (a.sd == null) ? '' : 'σ ' + a.sd.toFixed(1);
+    const titulo = a.error || ((a.n || 0) + ' velas en ' + S.tf + ' · σ de los retornos = ' + (a.sd == null ? '—' : a.sd.toFixed(2)));
+    return '<div class="activo' + on + '" data-nom="' + a.nombre + '" title="' + titulo + '">'
+      + '<span class="nom">' + a.nombre + '</span>'
+      + '<span class="px">' + px + '</span>'
+      + '<span class="nv">' + sd + '</span></div>';
+  }).join('');
+  for (const el of $('activos').querySelectorAll('.activo')) {
+    el.onclick = () => { if (el.dataset.nom !== S.sim) { S.sim = el.dataset.nom; $('sim').value = S.sim; S.sigue = true; S.sel = null; pintarActivos(); cargar(); } };
+  }
+}
+
+function pintarPanel() {
+  const d = S.d;
+  const v = d.velas;
+  const ult = v[v.length - 1];
+  /* EMAs visibles en el último cierre */
+  $('chips').innerHTML = [
+    '<span class="chip">velas <b>' + d.n + '</b></span>',
+    '<span class="chip">roturas <b>' + d.conteo.roturas + '</b></span>',
+    '<span class="chip">toques <b>' + d.conteo.toques + '</b></span>',
+    '<span class="chip">cierre <b>' + fmt(ult.c) + '</b></span>',
+  ].join('');
+
+  const em = d.emas || {};
+  const ultimoDe = (k) => { const a = em[k]; if (!a) return null; for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
+  const espera = [];
+  for (const lado of ['VENTA', 'COMPRA']) {
+    const s = d.estadoMotor && d.estadoMotor[lado];
+    if (!s) continue;
+    espera.push('<div><span>' + lado.toLowerCase() + ' · ' + s.toques + ' toque' + (s.toques === 1 ? '' : 's')
+      + (s.engaño ? ' · engaño' : '') + '</span><b>' + (s.toques ? ('romper ' + fmt(s.nivel)) : 'sin toque') + '</b></div>');
+  }
+  $('espera').innerHTML = espera.join('') || '—';
+
+  const filas = d.eventos.slice().reverse().slice(0, 60).map((e, i) => {
+    const idx = d.eventos.length - 1 - i;
+    const on = S.sel && S.sel.t === e.t && S.sel.patron === e.patron ? ' on' : '';
+    return '<tr class="' + on + '" data-i="' + idx + '">'
+      + '<td>' + hora(e.t, d.tf) + '</td>'
+      + '<td>' + e.patron + '</td>'
+      + '<td class="' + (e.lado === 'COMPRA' ? 'compra' : 'venta') + '">' + (e.lado === 'COMPRA' ? 'C' : 'V') + '</td>'
+      + '<td>' + fmt(e.precio) + '</td>'
+      + '<td>' + fmt(e.invalida) + '</td>'
+      + '<td>' + fmt(e.nivel) + '</td></tr>';
+  }).join('');
+  $('tabla').innerHTML = filas || '<tr><td colspan="6">sin eventos</td></tr>';
+  for (const tr of $('tabla').querySelectorAll('tr[data-i]')) {
+    tr.onclick = () => {
+      const e = d.eventos[Number(tr.dataset.i)];
+      S.sel = e;
+      if (e.bar >= 0) { S.ini = Math.max(0, Math.min(d.velas.length - S.cnt, e.bar - Math.floor(S.cnt / 2))); S.sigue = false; }
+      pintarPanel(); draw();
+    };
+  }
+
+  const rango = fecha(d.desde) + ' → ' + fecha(d.hasta);
+  const f = frescura();
+  $('pie').innerHTML = '<span>' + d.simbolo + ' · ' + d.tf + ' · ' + rango + '</span>'
+    + '<span>vista ' + S.ini + '–' + Math.min(S.ini + S.cnt - 1, v.length - 1) + ' de ' + v.length + '</span>'
+    + (d.offset ? ('<span>recorte ' + d.offset + ' velas</span>') : '')
+    + (d.ahora ? ('<span>último tick del motor: ' + hora(d.ahora, d.tf) + (f.atrasado ? ' · parado ' + hace(f.retraso) : (f.formando ? ' · vela en curso' : ' · ' + hace(f.retraso))) + '</span>') : '')
+    + '<span>rueda = zoom · arrastra = mover · doble clic = reencuadrar</span>';
+}
+
+/* ---------- dibujo ---------- */
+const PAD = { i: 10, d: 86, t: 14, b: 26 };
+
+function visibles() {
+  const d = S.d;
+  const desde = Math.max(0, S.ini);
+  const hasta = Math.min(d.velas.length, desde + S.cnt);
+  return { desde, hasta };
+}
+
+function escala(desde, hasta) {
+  const d = S.d;
+  let mn = Infinity, mx = -Infinity;
+  for (let i = desde; i < hasta; i++) {
+    const v = d.velas[i];
+    if (v.l < mn) mn = v.l;
+    if (v.h > mx) mx = v.h;
+  }
+  for (const [k, arr] of Object.entries(d.emas || {})) {
+    if (!S.emas[k]) continue;
+    for (let i = desde; i < hasta; i++) { const e = arr[i]; if (e == null) continue; if (e < mn) mn = e; if (e > mx) mx = e; }
+  }
+  if (S.sel && Number.isFinite(S.sel.precio)) { mn = Math.min(mn, S.sel.precio, S.sel.invalida ?? S.sel.precio); mx = Math.max(mx, S.sel.precio, S.sel.invalida ?? S.sel.precio); }
+  if (!Number.isFinite(mn) || !Number.isFinite(mx)) { mn = 0; mx = 1; }
+  const m = (mx - mn) * 0.06 || Math.abs(mx || 1) * 0.001;
+  return { mn: mn - m, mx: mx + m };
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0b0e14';
+  ctx.fillRect(0, 0, W, H);
+  const d = S.d;
+  if (!d || !d.velas.length) return;
+
+  const { desde, hasta } = visibles();
+  const { mn, mx } = escala(desde, hasta);
+  const ancho = W - PAD.i - PAD.d;
+  const alto = H - PAD.t - PAD.b;
+  const paso = ancho / Math.max(1, hasta - desde);
+  const x = (i) => PAD.i + (i - desde + 0.5) * paso;
+  const y = (p) => PAD.t + (mx - p) / (mx - mn) * alto;
+  const cuerpo = Math.max(1, Math.min(14, paso * 0.66));
+
+  /* rejilla + eje de precios */
+  ctx.font = '11px ui-monospace,SFMono-Regular,Menlo,monospace';
+  ctx.textBaseline = 'middle';
+  const lineas = 6;
+  for (let k = 0; k <= lineas; k++) {
+    const p = mn + (mx - mn) * k / lineas;
+    const yy = Math.round(y(p)) + 0.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.beginPath(); ctx.moveTo(PAD.i, yy); ctx.lineTo(W - PAD.d, yy); ctx.stroke();
+    ctx.fillStyle = '#7d8ba1';
+    ctx.textAlign = 'right';
+    ctx.fillText(fmt(p), W - 6, yy);
+  }
+
+  /* eje de tiempo */
+  const cada = Math.max(1, Math.round(85 / Math.max(1, paso)));
+  ctx.textAlign = 'center';
+  for (let i = desde; i < hasta; i++) {
+    if ((i - desde) % cada) continue;
+    const xx = x(i);
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.beginPath(); ctx.moveTo(Math.round(xx) + 0.5, PAD.t); ctx.lineTo(Math.round(xx) + 0.5, H - PAD.b); ctx.stroke();
+    ctx.fillStyle = '#7d8ba1';
+    ctx.fillText(hora(d.velas[i].t, d.tf), xx, H - PAD.b / 2);
+  }
+
+  /* velas */
+  for (let i = desde; i < hasta; i++) {
+    const v = d.velas[i];
+    const xx = Math.round(x(i)) + 0.5;
+    const sube = v.c >= v.o;
+    ctx.strokeStyle = ctx.fillStyle = sube ? '#26a69a' : '#ef5350';
+    ctx.beginPath(); ctx.moveTo(xx, y(v.h)); ctx.lineTo(xx, y(v.l)); ctx.stroke();
+    const y1 = y(Math.max(v.o, v.c)), y2 = y(Math.min(v.o, v.c));
+    const hh = Math.max(1, y2 - y1);
+    ctx.fillRect(xx - cuerpo / 2, y1, cuerpo, hh);
+  }
+
+  /* vela en curso o motor parado: se ve, no se disimula */
+  const f = frescura();
+  if (f.atrasado || f.formando) {
+    const iUlt = d.velas.length - 1;
+    const xx = x(iUlt);
+    ctx.strokeStyle = f.atrasado ? 'rgba(239,83,80,.7)' : 'rgba(230,237,247,.55)';
+    ctx.setLineDash([3, 3]);
+    ctx.strokeRect(xx - Math.max(2, cuerpo / 2) - 1.5, PAD.t + 1, Math.max(4, cuerpo + 3), alto - 2);
+    ctx.setLineDash([]);
+    if (f.atrasado) {
+      ctx.fillStyle = 'rgba(239,83,80,.9)';
+      ctx.textAlign = 'right';
+      ctx.fillText('motor sin ticks desde ' + hora(d.ahora, d.tf), W - PAD.d - 6, PAD.t + 10);
+    }
+  }
+
+  /* EMAs */
+  const colores = { 30: '#e8eef7', 50: '#f0b429', 100: '#4aa3ff' };
+  for (const [k, arr] of Object.entries(d.emas || {})) {
+    if (!S.emas[k]) continue;
+    ctx.strokeStyle = colores[k] || '#9ad';
+    ctx.lineWidth = k === '30' ? 1.4 : 1.6;
+    ctx.beginPath();
+    let abierto = false;
+    for (let i = desde; i < hasta; i++) {
+      const e = arr[i];
+      if (e == null) { abierto = false; continue; }
+      if (!abierto) { ctx.moveTo(x(i), y(e)); abierto = true; } else ctx.lineTo(x(i), y(e));
+    }
+    ctx.stroke();
+  }
+  ctx.lineWidth = 1;
+
+  /* evento elegido: nivel a romper, entrada y stop */
+  if (S.sel) {
+    const e = S.sel;
+    const banda = (a, b, color) => {
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return;
+      ctx.fillStyle = color;
+      ctx.fillRect(PAD.i, Math.min(y(a), y(b)), ancho, Math.abs(y(a) - y(b)));
+    };
+    banda(e.precio, e.invalida, 'rgba(239,83,80,0.07)');
+    const lineas = [
+      [e.nivel, 'nivel ' + fmt(e.nivel), '#8b9ab1', [6, 4]],
+      [e.precio, 'entrada ' + fmt(e.precio), e.lado === 'COMPRA' ? '#26a69a' : '#ef5350', [2, 3]],
+      [e.invalida, 'stop ' + fmt(e.invalida), '#ef5350', [8, 4]],
+    ];
+    for (const [p, txt, color, guion] of lineas) {
+      if (!Number.isFinite(p)) continue;
+      const yy = Math.round(y(p)) + 0.5;
+      if (yy < PAD.t || yy > H - PAD.b) continue;
+      ctx.save();
+      ctx.setLineDash(guion);
+      ctx.strokeStyle = color;
+      ctx.beginPath(); ctx.moveTo(PAD.i, yy); ctx.lineTo(W - PAD.d, yy); ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = color;
+      ctx.textAlign = 'left';
+      ctx.fillText(txt, PAD.i + 4, yy - 8);
+    }
+  }
+
+  /* marcadores de eventos */
+  const mostrar = (e) => (e.rotura ? S.roturas : S.toques);
+  for (let i = desde; i < hasta; i++) {
+    for (const e of d.eventos) {
+      if (e.bar !== i || !mostrar(e)) continue;
+      const xx = x(i);
+      const color = e.lado === 'COMPRA' ? '#26a69a' : '#ef5350';
+      const yy = e.lado === 'COMPRA' ? y(e.precio) + 12 : y(e.precio) - 12;
+      ctx.fillStyle = color;
+      if (e.rotura) {
+        ctx.beginPath();
+        if (e.lado === 'COMPRA') { ctx.moveTo(xx, yy - 6); ctx.lineTo(xx - 5, yy + 3); ctx.lineTo(xx + 5, yy + 3); }
+        else { ctx.moveTo(xx, yy + 6); ctx.lineTo(xx - 5, yy - 3); ctx.lineTo(xx + 5, yy - 3); }
+        ctx.closePath(); ctx.fill();
+      } else {
+        ctx.strokeStyle = color;
+        ctx.beginPath(); ctx.arc(xx, yy, 3, 0, Math.PI * 2); ctx.stroke();
+      }
+      if (paso > 7) {
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.font = '10px ui-monospace,SFMono-Regular,Menlo,monospace';
+        ctx.fillText(e.patron, xx, e.lado === 'COMPRA' ? yy + 13 : yy - 10);
+      }
+    }
+  }
+  ctx.font = '11px ui-monospace,SFMono-Regular,Menlo,monospace';
+
+  /* último precio */
+  const ult = d.velas[d.velas.length - 1];
+  if (Number.isFinite(ult.c)) {
+    const yy = Math.round(y(ult.c)) + 0.5;
+    if (yy >= PAD.t && yy <= H - PAD.b) {
+      ctx.save();
+      ctx.setLineDash([1, 3]);
+      ctx.strokeStyle = '#5f7189';
+      ctx.beginPath(); ctx.moveTo(PAD.i, yy); ctx.lineTo(W - PAD.d, yy); ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#5f7189';
+      ctx.textAlign = 'right';
+      ctx.fillText(fmt(ult.c), W - 6, yy - 9);
+    }
+  }
+
+  /* cruz */
+  if (S.hover >= desde && S.hover < hasta) {
+    const xx = Math.round(x(S.hover)) + 0.5;
+    ctx.strokeStyle = 'rgba(230,237,247,0.25)';
+    ctx.beginPath(); ctx.moveTo(xx, PAD.t); ctx.lineTo(xx, H - PAD.b); ctx.stroke();
+  }
+}
+
+/* ---------- interacción ---------- */
+cv.addEventListener('mousemove', (ev) => {
+  if (!S.d) return;
+  const r = cv.getBoundingClientRect();
+  const px = ev.clientX - r.left, py = ev.clientY - r.top;
+  if (S.arrastre) {
+    const dx = px - S.arrastre.x;
+    const barras = Math.round(-dx / S.arrastre.paso);
+    S.ini = Math.max(0, Math.min(S.d.velas.length - S.cnt, S.arrastre.ini + barras));
+    S.sigue = false;
+    pintarPanel(); draw();
+    return;
+  }
+  const { desde, hasta } = visibles();
+  const paso = (W - PAD.i - PAD.d) / Math.max(1, hasta - desde);
+  const i = Math.floor((px - PAD.i) / paso) + desde;
+  S.hover = (i >= desde && i < hasta) ? i : -1;
+  mostrarTip(px, py, i);
+  draw();
+});
+cv.addEventListener('mouseleave', () => { S.hover = -1; $('tip').classList.add('oculto'); draw(); });
+cv.addEventListener('mousedown', (ev) => {
+  const r = cv.getBoundingClientRect();
+  const { desde, hasta } = visibles();
+  S.arrastre = { x: ev.clientX - r.left, ini: S.ini, paso: (W - PAD.i - PAD.d) / Math.max(1, hasta - desde) };
+});
+window.addEventListener('mouseup', () => { S.arrastre = null; });
+cv.addEventListener('wheel', (ev) => {
+  if (!S.d) return;
+  ev.preventDefault();
+  const r = cv.getBoundingClientRect();
+  const px = ev.clientX - r.left;
+  const { desde, hasta } = visibles();
+  const frac = Math.min(1, Math.max(0, (px - PAD.i) / (W - PAD.i - PAD.d)));
+  const ancla = desde + frac * (hasta - desde);
+  const factor = ev.deltaY > 0 ? 1.15 : 0.87;
+  const nuevo = Math.max(80, Math.min(1400, Math.round(S.cnt * factor)));
+  S.ini = Math.max(0, Math.min(S.d.velas.length - nuevo, Math.round(ancla - frac * nuevo)));
+  S.cnt = nuevo;
+  S.sigue = S.ini + S.cnt >= S.d.velas.length - 2;
+  pintarPanel(); draw();
+}, { passive: false });
+cv.addEventListener('dblclick', () => { S.sigue = true; S.ini = Math.max(0, S.d.velas.length - S.cnt); S.sel = null; pintarPanel(); draw(); });
+
+function mostrarTip(px, py, i) {
+  const d = S.d;
+  if (!d || i < 0 || i >= d.velas.length) { $('tip').classList.add('oculto'); return; }
+  const v = d.velas[i];
+  const em = Object.entries(d.emas || {}).filter(([k]) => S.emas[k]).map(([k, a]) => 'EMA' + k + ' ' + fmt(a[i])).join(' · ');
+  const evs = d.eventos.filter((e) => e.bar === i);
+  const tip = $('tip');
+  tip.innerHTML = '<div class="h">' + fecha(v.t) + '</div>'
+    + 'O ' + fmt(v.o) + ' · H ' + fmt(v.h) + '<br>A ' + fmt(v.l) + ' · C <b>' + fmt(v.c) + '</b>'
+    + (em ? '<div class="h" style="margin-top:4px">' + em + '</div>' : '')
+    + evs.map((e) => '<div style="margin-top:5px;color:' + (e.lado === 'COMPRA' ? '#26a69a' : '#ef5350') + '">'
+      + '<b>' + e.patron + '</b> ' + e.lado.toLowerCase() + ' · entrada ' + fmt(e.precio) + ' · stop ' + fmt(e.invalida) + '</div>').join('');
+  tip.classList.remove('oculto');
+  const ancho = tip.offsetWidth, altoTip = tip.offsetHeight;
+  tip.style.left = Math.min(W - ancho - 8, px + 14) + 'px';
+  tip.style.top = Math.max(6, Math.min(H - altoTip - 8, py + 14)) + 'px';
+}
+
+/* ---------- arranque ---------- */
+$('cRoturas').onchange = (e) => { S.roturas = e.target.checked; draw(); };
+$('cToques').onchange = (e) => { S.toques = e.target.checked; draw(); };
+for (const p of [30, 50, 100]) {
+  $('e' + p).onchange = (e) => { S.emas[p] = e.target.checked; draw(); };
+}
+$('verUltimo').onclick = () => { if (!S.d) return; S.sigue = true; S.ini = Math.max(0, S.d.velas.length - S.cnt); pintarPanel(); draw(); };
+$('sim').onchange = (e) => { S.sim = e.target.value; S.sigue = true; S.sel = null; pintarActivos(); cargar(); };
+$('tf').onchange = async (e) => {
+  S.tf = e.target.value; S.sigue = true; S.sel = null;
+  await cargarActivos();
+  cargar();
+};
+new ResizeObserver(medir).observe(cv);
+window.addEventListener('resize', medir);
+
+(async () => {
+  await cargarActivos();
+  if (!S.activos.length) { S.sim = 'FX Vol 20'; $('sim').innerHTML = '<option>FX Vol 20</option>'; }
+  else S.sim = S.activos[0].nombre;
+  $('sim').value = S.sim;
+  pintarActivos();
+  await cargar();
+  medir();
+  setInterval(cargar, 5000);
+  setInterval(cargarActivos, 60000);
+})();
+</script>
+</body>
+</html>

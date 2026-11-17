@@ -1,0 +1,446 @@
+{
+  "generado": "2026-11-16T18:00:43.248Z",
+  "parametros": {
+    "emaContacto": 30,
+    "emaTecho": 50,
+    "emaFondo": 100,
+    "retencionDias": 30,
+    "atrPeriodo": 14,
+    "tolToqueAtr": 0.3,
+    "ventanaMin": 12,
+    "cuerpoMin": 0.5,
+    "cuerpoMinAtr": 0.1,
+    "caducidad": 3,
+    "separacionToques": 2,
+    "exigirExtension": true,
+    "cuerpoSoloUno": false,
+    "caducidadEngano": 12,
+    "cancelarSobreTecho": true,
+    "resetPorSalida": true,
+    "resetTrasEntrada": true,
+    "separacionMinAtr": 0,
+    "pendienteMinAtr": 0,
+    "nivelUnoPorEngano": true,
+    "modo2B": "retesteo",
+    "caducidadRetesteo": 3,
+    "tolRetesteoAtr": 0.3,
+    "margen2BAtr": 0.5,
+    "caducidadFallo2B": 2,
+    "estructuraImpulsoMinATR": 0.8,
+    "estructuraMinVelasImpulso": 2,
+    "estructuraMaxVelasImpulso": 3,
+    "estructuraCuerpoImpulso": 0.35,
+    "estructuraVentanaEstructura": 20,
+    "estructuraRetrocesoMinATR": 1,
+    "estructuraRetrocesoMaxATR": 3,
+    "estructuraCaducidad": 30,
+    "estructuraEspera": 30
+  },
+  "metodo": {
+    "horizonte": 12,
+    "tpR": 1.5,
+    "split": 0.7
+  },
+  "series": [
+    {
+      "simbolo": "FX Vol 20",
+      "tf": "M5",
+      "fuente": "csv",
+      "velas": 8588,
+      "desde": 1791558300000,
+      "hasta": 1794150000000,
+      "eventos": 320
+    },
+    {
+      "simbolo": "FX Vol 40",
+      "tf": "M5",
+      "fuente": "csv",
+      "velas": 8588,
+      "desde": 1791558300000,
+      "hasta": 1794150000000,
+      "eventos": 263
+    },
+    {
+      "simbolo": "SFX Vol 20",
+      "tf": "M5",
+      "fuente": "csv",
+      "velas": 8588,
+      "desde": 1791558300000,
+      "hasta": 1794150000000,
+      "eventos": 208
+    },
+    {
+      "simbolo": "SFX Vol 40",
+      "tf": "M5",
+      "fuente": "csv",
+      "velas": 8588,
+      "desde": 1791558300000,
+      "hasta": 1794150000000,
+      "eventos": 196
+    },
+    {
+      "simbolo": "FX Vol 20",
+      "tf": "M15",
+      "fuente": "csv",
+      "velas": 2868,
+      "desde": 1791558900000,
+      "hasta": 1794150000000,
+      "eventos": 80
+    },
+    {
+      "simbolo": "FX Vol 40",
+      "tf": "M15",
+      "fuente": "csv",
+      "velas": 2868,
+      "desde": 1791558900000,
+      "hasta": 1794150000000,
+      "eventos": 92
+    },
+    {
+      "simbolo": "SFX Vol 20",
+      "tf": "M15",
+      "fuente": "csv",
+      "velas": 2868,
+      "desde": 1791558900000,
+      "hasta": 1794150000000,
+      "eventos": 68
+    },
+    {
+      "simbolo": "SFX Vol 40",
+      "tf": "M15",
+      "fuente": "csv",
+      "velas": 2868,
+      "desde": 1791558900000,
+      "hasta": 1794150000000,
+      "eventos": 66
+    },
+    {
+      "simbolo": "FX Vol 20",
+      "tf": "M30",
+      "fuente": "csv",
+      "velas": 1434,
+      "desde": 1791559800000,
+      "hasta": 1794150000000,
+      "eventos": 46
+    },
+    {
+      "simbolo": "FX Vol 40",
+      "tf": "M30",
+      "fuente": "csv",
+      "velas": 1434,
+      "desde": 1791559800000,
+      "hasta": 1794150000000,
+      "eventos": 39
+    },
+    {
+      "simbolo": "SFX Vol 20",
+      "tf": "M30",
+      "fuente": "csv",
+      "velas": 1434,
+      "desde": 1791559800000,
+      "hasta": 1794150000000,
+      "eventos": 21
+    },
+    {
+      "simbolo": "SFX Vol 40",
+      "tf": "M30",
+      "fuente": "csv",
+      "velas": 1434,
+      "desde": 1791559800000,
+      "hasta": 1794150000000,
+      "eventos": 42
+    },
+    {
+      "simbolo": "FX Vol 20",
+      "tf": "H1",
+      "fuente": "csv",
+      "velas": 718,
+      "desde": 1791561600000,
+      "hasta": 1794150000000,
+      "eventos": 26
+    },
+    {
+      "simbolo": "FX Vol 40",
+      "tf": "H1",
+      "fuente": "csv",
+      "velas": 718,
+      "desde": 1791561600000,
+      "hasta": 1794150000000,
+      "eventos": 24
+    },
+    {
+      "simbolo": "SFX Vol 20",
+      "tf": "H1",
+      "fuente": "csv",
+      "velas": 718,
+      "desde": 1791561600000,
+      "hasta": 1794150000000,
+      "eventos": 19
+    },
+    {
+      "simbolo": "SFX Vol 40",
+      "tf": "H1",
+      "fuente": "csv",
+      "velas": 718,
+      "desde": 1791561600000,
+      "hasta": 1794150000000,
+      "eventos": 19
+    }
+  ],
+  "variantes": {
+    "diccionario: cuerpo en las B + retesteo (por defecto)": {
+      "n": 1510,
+      "esperanza": -0.10665316652531272,
+      "suma": -161.0462814532222,
+      "acierto": 0.37682119205298015,
+      "pf": 0.820353953371821,
+      "maxDD": 168.40356965103143,
+      "ganadoras": 569,
+      "perdedoras": 941
+    },
+    "sin retesteo (entrar al quiebre)": {
+      "n": 1549,
+      "esperanza": -0.09373134658609995,
+      "suma": -145.18985586186884,
+      "acierto": 0.3841187863137508,
+      "pf": 0.8399380125803323,
+      "maxDD": 150.05748413254068,
+      "ganadoras": 595,
+      "perdedoras": 954
+    },
+    "sin cuerpo en las B": {
+      "n": 1548,
+      "esperanza": -0.10205075241006066,
+      "suma": -157.9745647307739,
+      "acierto": 0.3785529715762274,
+      "pf": 0.827145694761403,
+      "maxDD": 165.42648974368126,
+      "ganadoras": 586,
+      "perdedoras": 962
+    },
+    "como antes: sin cuerpo y sin retesteo": {
+      "n": 1596,
+      "esperanza": -0.09661821325557036,
+      "suma": -154.2026683558903,
+      "acierto": 0.38283208020050125,
+      "pf": 0.8352047296994242,
+      "maxDD": 158.16493344166028,
+      "ganadoras": 611,
+      "perdedoras": 985
+    },
+    "con filtro anti-rango estricto (0.5/0.3 ATR)": {
+      "n": 388,
+      "esperanza": -0.1274399712245983,
+      "suma": -49.446708835144136,
+      "acierto": 0.3788659793814433,
+      "pf": 0.7926356062198336,
+      "maxDD": 57.946708835144136,
+      "ganadoras": 147,
+      "perdedoras": 241
+    },
+    "con filtro anti-rango suave (0.3/0.15 ATR)": {
+      "n": 960,
+      "esperanza": -0.12455279092713786,
+      "suma": -119.57067929005235,
+      "acierto": 0.36770833333333336,
+      "pf": 0.7936263732937751,
+      "maxDD": 121.95168301684164,
+      "ganadoras": 353,
+      "perdedoras": 607
+    },
+    "con filtro anti-rango medio (0.4/0.2 ATR)": {
+      "n": 740,
+      "esperanza": -0.09508451445333141,
+      "suma": -70.36254069546524,
+      "acierto": 0.3824324324324324,
+      "pf": 0.8399376133229217,
+      "maxDD": 73.74354442225453,
+      "ganadoras": 283,
+      "perdedoras": 457
+    },
+    "roturas + filtro estricto": {
+      "n": 66,
+      "esperanza": 0.23018718869872964,
+      "suma": 15.192354454116156,
+      "acierto": 0.6060606060606061,
+      "pf": 1.6244909434190533,
+      "maxDD": 6.9308813050525195,
+      "ganadoras": 40,
+      "perdedoras": 26
+    },
+    "roturas + filtro suave": {
+      "n": 248,
+      "esperanza": 0.07338526536444558,
+      "suma": 18.199545810382503,
+      "acierto": 0.4717741935483871,
+      "pf": 1.16617713222588,
+      "maxDD": 10.738464216803397,
+      "ganadoras": 117,
+      "perdedoras": 131
+    },
+    "roturas + filtro medio": {
+      "n": 165,
+      "esperanza": 0.11264654846069354,
+      "suma": 18.586680496014434,
+      "acierto": 0.509090909090909,
+      "pf": 1.2697762572815328,
+      "maxDD": 8.595706669045722,
+      "ganadoras": 84,
+      "perdedoras": 81
+    },
+    "sin reset tras entrada": {
+      "n": 1510,
+      "esperanza": -0.10665316652531272,
+      "suma": -161.0462814532222,
+      "acierto": 0.37682119205298015,
+      "pf": 0.820353953371821,
+      "maxDD": 168.40356965103143,
+      "ganadoras": 569,
+      "perdedoras": 941
+    },
+    "solo roturas (1/1R/2B/2RB/3B/3RB)": {
+      "n": 470,
+      "esperanza": 0.06977678665971711,
+      "suma": 32.79508973006704,
+      "acierto": 0.4723404255319149,
+      "pf": 1.1539739436038987,
+      "maxDD": 19.810613263961365,
+      "ganadoras": 222,
+      "perdedoras": 248
+    },
+    "solo toque (2/2R/3/3R)": {
+      "n": 1040,
+      "esperanza": -0.18638593383008575,
+      "suma": -193.8413711832892,
+      "acierto": 0.33365384615384613,
+      "pf": 0.7163877564173233,
+      "maxDD": 196.8413711832892,
+      "ganadoras": 347,
+      "perdedoras": 693
+    },
+    "sin reset + solo roturas": {
+      "n": 470,
+      "esperanza": 0.06977678665971711,
+      "suma": 32.79508973006704,
+      "acierto": 0.4723404255319149,
+      "pf": 1.1539739436038987,
+      "maxDD": 19.810613263961365,
+      "ganadoras": 222,
+      "perdedoras": 248
+    }
+  },
+  "porCodigo": {
+    "1": {
+      "n": 32,
+      "esperanza": 0.06730416414825424,
+      "suma": 2.1537332527441357,
+      "acierto": 0.5,
+      "pf": 1.1346083282965085,
+      "maxDD": 3.7830085343512607,
+      "ganadoras": 16,
+      "perdedoras": 16
+    },
+    "2": {
+      "n": 306,
+      "esperanza": -0.16275101982793008,
+      "suma": -49.8018120673466,
+      "acierto": 0.3464052287581699,
+      "pf": 0.7447150784838659,
+      "maxDD": 51.3018120673466,
+      "ganadoras": 106,
+      "perdedoras": 200
+    },
+    "3": {
+      "n": 149,
+      "esperanza": -0.23886586187253306,
+      "suma": -35.591013419007425,
+      "acierto": 0.31543624161073824,
+      "pf": 0.646114254236709,
+      "maxDD": 40.78896339403119,
+      "ganadoras": 47,
+      "perdedoras": 102
+    },
+    "1R": {
+      "n": 268,
+      "esperanza": 0.022044868623676807,
+      "suma": 5.908024791145384,
+      "acierto": 0.4291044776119403,
+      "pf": 1.0447696974391127,
+      "maxDD": 22.92683364222477,
+      "ganadoras": 115,
+      "perdedoras": 153
+    },
+    "2B": {
+      "n": 26,
+      "esperanza": -0.060350527126436515,
+      "suma": -1.5691137052873494,
+      "acierto": 0.5,
+      "pf": 0.8230424664045705,
+      "maxDD": 3.3262891071328142,
+      "ganadoras": 13,
+      "perdedoras": 13
+    },
+    "2R": {
+      "n": 408,
+      "esperanza": -0.1958224501315471,
+      "suma": -79.89555965367121,
+      "acierto": 0.3284313725490196,
+      "pf": 0.7063142795051086,
+      "maxDD": 81.89555965367121,
+      "ganadoras": 134,
+      "perdedoras": 274
+    },
+    "2RB": {
+      "n": 49,
+      "esperanza": 0.14898483344899238,
+      "suma": 7.300256839000627,
+      "acierto": 0.5714285714285714,
+      "pf": 1.4218606834761371,
+      "maxDD": 6.187886451540975,
+      "ganadoras": 28,
+      "perdedoras": 21
+    },
+    "3B": {
+      "n": 32,
+      "esperanza": 0.013709955846807773,
+      "suma": 0.4387185870978487,
+      "acierto": 0.4375,
+      "pf": 1.028996272974185,
+      "maxDD": 6.0415992146990565,
+      "ganadoras": 14,
+      "perdedoras": 18
+    },
+    "3R": {
+      "n": 177,
+      "esperanza": -0.16131630532917463,
+      "suma": -28.552986043263907,
+      "acierto": 0.3389830508474576,
+      "pf": 0.7533720130650406,
+      "maxDD": 32.05298604326391,
+      "ganadoras": 60,
+      "perdedoras": 117
+    },
+    "3RB": {
+      "n": 63,
+      "esperanza": 0.29465825341851437,
+      "suma": 18.563469965366405,
+      "acierto": 0.5714285714285714,
+      "pf": 1.782472972320838,
+      "maxDD": 4.913118589182578,
+      "ganadoras": 36,
+      "perdedoras": 27
+    }
+  },
+  "filtros": {
+    "alineada": 75101,
+    "toca": 24279,
+    "supera": 2418,
+    "enganoVivo": 1788,
+    "caducidad": 25440,
+    "cancelarSobreTecho": 1353,
+    "cuerpoOk": 431,
+    "rompe": 2203,
+    "sinCodigo": 0,
+    "chop": 0
+  }
+}
