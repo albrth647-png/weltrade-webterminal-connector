@@ -14,8 +14,8 @@
        legible (inputs, indicadores, órdenes, pares).
 
    NUNCA inventa estrategia: solo informa de lo observado.
-   Espejo browser del importador del motor (motor-senales/
-   importador.js) — mismos umbrales, mismos slots de cabecera.
+   Radiografía propia de la PWA: no depende del motor de señales
+   (motor-senales/), que corre el catálogo del vídeo 03.
    ============================================================ */
 
 const TEXTO_EXTS = new Set(['json', 'md', 'txt', 'markdown', 'set', 'tpl', 'mq5', 'mq4', 'mqh', 'mqd', 'inc']);

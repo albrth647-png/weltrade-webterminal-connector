@@ -112,6 +112,10 @@ export class ClienteMT5Web {
   conectar() {
     this.etapa = 'conectando';
     this._cerrada = false;                    // nueva sesión: el guard de cierre se reinicia
+    /* La clave de sesión caduca con el socket: el handshake del reintento debe
+       volver a la estática o el servidor lo descarta (1006 a los 2 s) y la
+       reconexión entra en bucle hasta reiniciar la app. */
+    this.clave = CLAVE_ESTATICA;
     const ws = new WebSocket(`wss://${this.host}/terminal`);
     this.ws = ws;
     ws.binaryType = 'arraybuffer';

@@ -268,13 +268,16 @@ export class PanelVelas {
     /* zonas activas (soporte/resistencia) dentro del rango */
     ctx.setLineDash([5, 4]);
     for (const z of zonas) {
-      if (z.nivel < ymin || z.nivel > ymax) continue;
-      const y = Math.round(py(z.nivel)) + 0.5;
-      ctx.strokeStyle = z.tipo === 'soporte' ? C.soporte : C.resistencia;
+      const nivel = (z.precio != null ? z.precio : z.nivel);
+      if (nivel == null || nivel < ymin || nivel > ymax) continue;
+      const y = Math.round(py(nivel)) + 0.5;
+      const esSoporte = (z.tipo === 'soporte' || z.tipo === 'alcista' || z.lado === 'alcista');
+      const fuerza = (z.swingStrength != null ? z.swingStrength : z.fuerza);
+      ctx.strokeStyle = esSoporte ? C.soporte : C.resistencia;
       ctx.beginPath(); ctx.moveTo(p.x0, y); ctx.lineTo(p.x1, y); ctx.stroke();
       ctx.fillStyle = ctx.strokeStyle;
       ctx.textAlign = 'left';
-      ctx.fillText(`${z.tipo === 'soporte' ? 'S' : 'R'} ${z.nivel.toFixed(dec)} · fuerza ${z.fuerza}`, p.x0 + 4, y - 8);
+      ctx.fillText(`${esSoporte ? 'S' : 'R'} ${nivel.toFixed(dec)}${fuerza != null ? ' · f' + fuerza : ''}`, p.x0 + 4, y - 8);
     }
     ctx.setLineDash([]);
 
@@ -308,19 +311,17 @@ export class PanelVelas {
 
     /* marcadores de señales recientes del símbolo */
     for (const s of senales) {
-      if (!s.t) continue;
-      const idx = this._idxDeTiempo(velas, s.t);
-      if (idx === -1) continue;
+      let idx = -1;
+      if (Number.isFinite(s.barIndex)) idx = s.barIndex;
+      else if (s.t) idx = this._idxDeTiempo(velas, s.t);
+      if (idx < 0 || idx >= velas.length) continue;
       const x = this._xDe(idx);
       if (x < p.x0 || x > p.x1) continue;
       const v = velas[idx];
-      const compra = s.lado === 'COMPRA';
+      const compra = (s.lado === 'alcista' || s.lado === 'COMPRA' || s.lado === 'bull' || s.lado === 'ALCISTA');
       const y = compra ? py(v.l) + 10 : py(v.h) - 10;
       ctx.fillStyle = compra ? C.alza : C.baja;
       ctx.beginPath();
-      /* ▲ COMPRA bajo la vela (apunta hacia arriba, hacia el precio) ·
-         ▼ VENTA sobre la vela (apunta hacia abajo). Los vértices estaban
-         invertidos: COMPRA dibujaba ▽ y VENTA △ (auditoría en vivo). */
       if (compra) { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 3); ctx.lineTo(x + 5, y + 3); }
       else { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 3); ctx.lineTo(x + 5, y - 3); }
       ctx.closePath(); ctx.fill();
@@ -328,7 +329,7 @@ export class PanelVelas {
         ctx.fillStyle = C.texto;
         ctx.font = '9px ui-monospace, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(String(s.score ?? ''), x, compra ? y + 14 : y - 12);
+        ctx.fillText(String(s.patron ?? s.score ?? ''), x, compra ? y + 14 : y - 12);
       }
     }
 

@@ -332,7 +332,10 @@ export async function enviarTelegram(token, chat, texto, { intentos = 2 } = {}) 
 
 export function formatearSenal(s) {
   const icono = s.lado === 'COMPRA' ? '🟢' : '🔴';
-  const hora = new Date(s.horaPared || s.t || Date.now()).toISOString().slice(0, 16).replace('T', ' ');
+  const fmtHabana = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Havana', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const p = {};
+  for (const { type, value } of fmtHabana.formatToParts(new Date(s.horaPared || s.t || Date.now()))) p[type] = value;
+  const hora = `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
   /* escHTML: el símbolo viene del catálogo del servidor — si trajera <, >
      o &, el parse_mode HTML devolvía 400 y la señal NUNCA llegaba */
   return [
@@ -340,6 +343,6 @@ export function formatearSenal(s) {
     `Fase: <b>${escTg(s.fase)}</b> · Sesgo H1: ${escTg(s.sesgo)}`,
     `Nivel (${escTg(s.tfZona)}): ${s.nivel} · Precio: ${s.precio}`,
     `${escTg(s.motivo)}`,
-    `Hora: ${hora} UTC`,
+    `Hora: ${hora} (Habana)`,
   ].join('\n');
 }
