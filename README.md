@@ -37,51 +37,34 @@ terceros**. Solo Node.js (~15 KB de código), pensado para correr en un
 | [`docs/`](docs/) | Guía de instalación y uso de REA + Ghidra (el stack de ingeniería inversa usado) · [`auditoria_proyecto.md`](docs/auditoria_proyecto.md) — auditoría completa del proyecto y correcciones aplicadas |
 | [`docs/RAPTOR_dossier_intel.md`](docs/RAPTOR_dossier_intel.md) | Dossier de inteligencia: qué es el RAPTOR (EA MT5 de SIFO), su sistema de señales WebScan y el plan de un equivalente propio |
 | [`docs/evidencia_sifo_i18n.json`](docs/evidencia_sifo_i18n.json) | Evidencia cruda: objetos i18n literales extraídos del HTML público de sifotrader.com (raptor, signals/WebScan, planes) |
-| [`motor-senales/`](motor-senales/) | ⭐ Motor de señales (equivalente propio del estilo Raptor): zonas + toques EARLY/MAIN/LATE + TN + sesgo multi-TF, **estrategia como documento externo** con panel web de importación, tests (estrategia + importador + protocolo), Telegram y despliegue Render |
+| [`motor-senales/`](motor-senales/) | ⭐ Motor de señales alineado al **vídeo 03 de Yoel**: catálogo `1 · 2 · 3 · 2B · 2RB · 3B · 3RB` con reset `R` sobre EMA30/50/100, tests (núcleo + protocolo + carril urgente), Telegram y despliegue Render |
 | [`backtest_raptor/`](backtest_raptor/) | Backtest con datos reales (1 año × FX Vol 20/60/99): 3.341 señales, WR 45,7%, PF 1,27 — `reporte.md` + `senales.csv` señal a señal |
 | [`scripts_re/`](scripts_re/) | Los 15 scripts con los que se hizo la ingeniería inversa: captura del bundle con REA, decodificación del protocolo, bisect de la clave, verificación del conector, script de Ghidra |
 | [`evidencia/`](evidencia/) | Capturas de la sesión real (login demo OK), logs binarios del protocolo, bundle capturado, sesiones decodificadas, JS del cliente oficial (zip) |
 | [`pwa/`](pwa/) | PWA de señales (motor en el navegador + IndexedDB + Telegram) con **botón de radiografía de bots MT5**: analiza `.mt5/.ex5/.ex4/.set/.tpl/.mq5/.mq4/.mqh` EN el teléfono, sin enviar el archivo a ningún servidor (`radio.js`) |
 
-## 🧠 Estrategia como documento (CERO estrategia en el código)
+## 🧠 La estrategia: el catálogo del vídeo 03
 
-El motor **no contiene ninguna estrategia**: solo el vocabulario genérico
-(pivotes, fases, TN, sesgo, scoring). Todos los valores viven en un
-**documento externo** (`motor-senales/estrategias/`):
+El motor ya **no** lleva documento externo ni panel de importación: corre una
+sola estrategia, la del vídeo 03 de Yoel, implementada en
+[`motor-senales/nucleo.js`](motor-senales/nucleo.js).
 
-- `raptor_default.json` — documento de referencia (= baseline del backtest:
-  3.341 señales, PF 1,27). Viaja con el paquete.
-- `activa.json` — la estrategia en marcha; se crea al activar desde la web.
+| Código | Qué es | ¿Entrada? |
+|---|---|---|
+| `1` | la seductora: se sale sobre la EMA50, regresa y quiebra **con cuerpo** | sí |
+| `2` / `3` | 2.º y 3.er toque a la EMA30 | aviso |
+| `2B` / `3B` | toque + cierre que rompe el mínimo anterior | sí |
+| `R` | la jugada repetida: `1R`, `2R`, `3R`, `2RB`, `3RB` | según la base |
 
-### Panel web con botón de importación
+Todas se miden igual: toque a la **EMA30** que no supera la **EMA50**, con
+tendencia comprobada (precio y EMAs 30/50/100 alineadas). No existe `1B`: el
+quiebre ya va dentro de la 1. La especificación con las citas del vídeo y los
+parámetros estimados está en
+[`docs/estrategia/video_03_reglas_implementables.md`](docs/estrategia/video_03_reglas_implementables.md).
 
-Al arrancar `node app.js`, abre `http://localhost:3000/` (o la URL de Render):
-
-1. **Importar documento** — acepta los documentos de bots de MT5 de escritorio:
-
-   | Formato | Qué extrae |
-   |---|---|
-   | `.json` / `.md` / `.txt` | Documento de estrategia directo (o bloque ```json embebido) |
-   | `.set` | Parámetros de un Expert de MT5 → los que coinciden se mapean, el resto se lista |
-   | `.tpl` | Plantilla de gráfico: indicadores (EMA→sesgo, ATR→periodo, Fractals→zonas) |
-   | `.mq5` / `.mq4` / `.mqh` | Código fuente: inputs, llamadas a indicadores, órdenes C/V (anatomía) |
-   | `.ex5` / `.ex4` | **Radiografía**: autor, link, versión, build, entropía — el cuerpo va cifrado por MetaQuotes |
-   | `.mt5` | Cualquier documento de bot de MT5: se identifica por **contenido** (magia EX5/EX4 → radiografía; texto → .set/.tpl/.mq5/json embebido) |
-
-2. **Validar** — el validador es ESTRICTO: un documento incompleto se rechaza
-   con la lista exacta de lo que falta.
-3. **Activar** — hot-swap sin reiniciar: el motor se reconstruye y re-siembra
-   el historial al vuelo.
-
-También por API: `POST /importar?nombre=x.set` (cuerpo = bytes crudos),
-`POST /estrategia/validar`, `POST /estrategia/activar`,
-`POST /estrategia/restaurar`, `GET /estrategia`.
-
-Todo lo importado queda copiado en `estrategias/importados/` (auditoría). El
-importador **nunca inventa estrategia**: los borradores parten de la plantilla
-neutra y solo aplican parámetros extraídos con certeza. Para el cuerpo cifrado
-de los `.ex5/.ex4` (reglas internas del bot adversario) está el plan de
-ingeniería inversa en [`docs/REA_Ghidra_Guia.md`](docs/REA_Ghidra_Guia.md).
+Los `.ex5/.ex4` siguen teniendo su sitio: la **radiografía** del bot adversario
+en la PWA ([`pwa/radio.js`](pwa/radio.js)) y el plan de ingeniería inversa en
+[`docs/REA_Ghidra_Guia.md`](docs/REA_Ghidra_Guia.md).
 
 ## 🚀 Arranque rápido (Termux)
 
@@ -109,7 +92,7 @@ La auditoría completa (0 hallazgos altos · 6 medios · 10 bajos, en
   SHA-256 del contenido (adiós al bump manual `wt-pwa-vN`) y test permanente
   del protocolo con paridad Node↔PWA (`motor-senales/test_protocolo.mjs`,
   50 checks, incluido en `npm test`).
-- **P2**: token opcional `ESTADO_TOKEN` en `/estado` y la API de estrategia,
+- **P2**: token opcional `ESTADO_TOKEN` en `/estado`,
   huella del login en UTF-8 también en la PWA, contador de reconexiones solo
   automáticas, metadatos iOS, zip redundante eliminado y verificación sha256
   en `instalar.sh`.

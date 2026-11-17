@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "longhand": {
+      "command": "longhand",
+      "args": ["mcp-server"],
+      "description": "Lossless Claude Code session history — semantic search and recall over ingested sessions (longhand mcp-server)"
+    }
+  }
+}
