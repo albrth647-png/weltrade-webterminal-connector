@@ -20,6 +20,7 @@
    Prioridades: entrada = `urgent`; nivel en juego = `high`.
    ============================================================ */
 const { spawn } = require('child_process');
+const { horaHabana } = require('./tiempo');
 
 const TIMEOUT_MS = 4000;
 
@@ -40,7 +41,7 @@ function _p(v) {
   return String(Number(Number(v).toFixed(5)));
 }
 
-const _hora = (t) => new Date(t || Date.now()).toISOString().slice(0, 16).replace('T', ' ');
+const _hora = (t) => horaHabana(t || Date.now());
 
 /* Texto de una entrada confirmada (etapa 2). Va en el push, más corto que el
    mensaje de Telegram a propósito: se lee de un vistazo en la pantalla. */
@@ -51,7 +52,7 @@ function textoEntrada(s) {
   return [
     `${icono} ${s.lado} · ${s.simbolo} · ${tf} · ${s.patron || '—'}`,
     `precio ${_p(s.precio)}${stop}`,
-    `${_hora(s.t)} UTC`,
+    `${_hora(s.t)} (Habana)`,
   ].join('\n');
 }
 
@@ -63,7 +64,7 @@ function textoNivelEnJuego(a) {
   return [
     `🔔 NIVEL EN JUEGO · ${a.simbolo} · ${a.tfZona || '—'}`,
     `${icono} ${a.lado} · ${a.zonaTipo || 'zona'} ${_p(a.zonaNivel ?? a.nivelRoto)}${dist}`,
-    `precio ${_p(a.precio)} · ${_hora(a.t)} UTC`,
+    `precio ${_p(a.precio)} · ${_hora(a.t)} (Habana)`,
     'no es entrada: la confirmación (1R/2R/3R) llega al cierre',
   ].join('\n');
 }

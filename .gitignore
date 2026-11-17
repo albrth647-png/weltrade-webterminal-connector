@@ -26,3 +26,18 @@ motor-senales/arranque.log
 motor-senales/.outbox.json
 motor-senales/.outbox.json.tmp
 motor-senales/.test_outbox.json
+
+# estado persistente del núcleo (velas + fingerprints)
+motor-senales/.estado.json
+motor-senales/.estado.json.tmp
+motor-senales/.estado.json.bak*
+
+# respaldos locales de código y logs del motor
+motor-senales/*.bak
+motor-senales/*.log
+motor-senales/*.log.bak*
+motor-senales/datos/*.bak*
+
+# fotogramas extraídos del vídeo (se regeneran con _tools/transcribir_fw.py)
+videos/yoel/datos/_ex/
+videos/yoel/datos/_zoom/

@@ -1,234 +1,158 @@
-# Motor de Señales Weltrade — estrategia como documento
+# Motor de Señales Weltrade — catálogo del vídeo 03
 
 Motor de señales para índices sintéticos de Weltrade, construido sobre el
-protocolo MT5 revertido en este repo (`conector/`). El motor en vivo es la
-**RAPTOR HÍBRIDA**: el catálogo del propietario (toques 1 · 2 · 3, rompimientos
-1R · 2R · 3R · 1RB · 2RB · 3RB, seductora 1S) traído de `estrategias/raptor_hibrida.py` a Node, con las zonas
-fractales, las fases **EARLY / MAIN / LATE**, el sesgo EMA30 y el score.
-Cada temporalidad aplica la estrategia completa con sus propias velas.
-
-Al port no se le cree nada: se verifica contra el Python (**1.650 señales, 0
-diferencias**) y cada etiqueta se re-audita con sus reglas (0 violaciones).
+protocolo MT5 de este repo (`conector/`) y con **una sola estrategia: la del
+vídeo 03 de Yoel**, paso a paso. No hay zonas fractales, ni fases
+EARLY/MAIN/LATE, ni score: eso era el motor anterior y se borró.
 
 - **Sin dependencias npm** — solo Node.js ≥ 22 (WebSocket global).
-- Corre en Termux, PC, o en la nube (Render free / Oracle Always Free).
-- Señales por consola y por **Telegram**.
-- Endpoint HTTP `/salud` + `/estado` (para Render y el pinger externo).
-- **La estrategia vive en documentos, no en el código**: se importa desde el
-  panel web con un botón (`/`), incluidos documentos de bots de MT5.
+- Señales por consola y por **Telegram** (+ carril urgente ntfy, opcional).
+- Endpoints `/salud` y `/estado`.
+
+La especificación de cada regla, con las citas del vídeo y los parámetros
+estimados, está en [`docs/estrategia/video_03_reglas_implementables.md`](../docs/estrategia/video_03_reglas_implementables.md).
 
 ---
 
-## 1. Cómo funciona
+## 1. El catálogo
 
-```
-wss://mt5.demo.weltrade.org/terminal        (WSS binario + AES-256-CBC)
-   │  cmd 0 handshake → cmd 28 login → cmd 6 catálogo → cmd 7 suscripción
-   │
-   ├── cmd 8  → ticks en vivo (~1/s por símbolo)
-   │             └─ agregación local: M5 (gatillo) · M15 (zonas) · H1 (sesgo)
-   ├── cmd 11 → velas de arranque (TFs y días según el documento activo)
-   │
-   ▼
-GESTOR DE ESTRATEGIA (gestor_estrategia.js)
-   └── DOCUMENTO activo: estrategias/activa.json
-       (si no existe: estrategias/raptor_default.json)
-   ▼
-MOTOR HÍBRIDO (estrategia_hibrida.js + raptor_hibrida.js + raptor_core.js)
-   ├── CATÁLOGO 1 · 2 · 3 (toque) · 1R · 2R · 3R (rompimiento) ·
-   │            1RB · 2RB · 3RB (rompimiento con reset) · 1S (la seductora; MS_SEDUCTORA=0 la apaga)
-   ├── ZONAS   pivotes fractales confirmados, refuerzo y TN
-   ├── FASES   EARLY (1er contacto) · MAIN (retest tras excursión) · LATE
-   ├── SESGO   EMA30 con pendiente + gatillo direccional (por TF)
-   └── SEÑAL   patrón + fase + zona + score   (MS_MOTOR=v1 deja el motor viejo)
-   ▼
-CONSOLA + TELEGRAM + PANEL WEB (botón importar) + HTTP /estado
-```
+| Código | Qué es | ¿Entrada? |
+|---|---|---|
+| `1` | la seductora: se sale sobre la EMA50, regresa y quiebra **con cuerpo** el mínimo del engaño | **sí** |
+| `2` | segundo toque a la EMA30, **superando** el mínimo del primero | aviso |
+| `3` | tercer toque, tras superar el mínimo de la 2 | aviso |
+| `2B` | segundo toque + cierre que rompe el mínimo anterior («las mejores»); no pide cuerpo | **sí** |
+| `3B` | tercer toque que rompe el mínimo anterior; no pide cuerpo | **sí** |
+| `R` | la misma jugada repetida en la misma dirección: `1R`, `2R`, `3R`, `2RB`, `3RB` | según la base |
+| `1B` | **no existe**: el quiebre ya va dentro de la 1 | — |
 
-**Todos los números (pesos, TFs, SL/TP, score mínimo, dedup, periodos) salen
-del documento de estrategia.** El código solo conoce el vocabulario: si falta
-un campo del documento, la validación lo rechaza y lista exactamente qué falta.
+Todas se miden igual: toque a la **EMA30** que no supera la **EMA50**, con
+tendencia comprobada (precio y EMAs 30/50/100 alineadas).
+
+**Regla de envío:** el bot solo manda una señal si su lado coincide con la
+tendencia EMA30/50/100 de su TF — `ALCISTA` → `COMPRA`, `BAJISTA` → `VENTA`;
+`LATERAL` no se envía. Además, no puede ir contra el TF mayor (`H1` por
+defecto): si H1 es bajista, ninguna COMPRA de M1/M5/M15 sale; si H1 es
+lateral, se permite la señal del TF menor. Cada mensaje (entrada y aviso)
+indica **Estrategia** y **Tendencia**.
+
+**Una vela, un lado:** si el bróker revisa el cierre o la vela construida con
+ticks no coincide con la oficial, el bot no envía el lado contrario al que ya
+envió para esa vela. Se descarta y queda en el log como revisión contradictoria;
+la vela del servidor siempre manda sobre la de ticks. El bloqueo se aplica
+después de los filtros de tendencia, así que una señal descartada por H1 no
+impide que una revisión válida mande el lado contrario.
+
+**Una señal por vela M5:** RAPTOR y Estructura pueden disparar en la misma
+vela y lado (16 casos en 30 días). El motor emite solo la de mayor prioridad
+—entrada antes que aviso y, entre entradas, tier A > B > C— y marca la otra
+como ya vista para que no salga en una revisión posterior del bróker. La
+gráfica sí dibuja las dos, porque son señales reales del escaneo.
+
+**Vela cerrada:** las entradas se calculan con la vela ya cerrada. No se
+dispara una entrada con la vela viva: una señal intrabar puede desaparecer y
+Telegram no permite corregirla. Si se añade el «al toque», será como aviso
+provisional, nunca como entrada.
+
+Y las cinco condiciones que el vídeo dice y que el motor ya aplica:
+
+1. **Extensión**: el 2.º toque tiene que superar el mínimo (máximo en compra)
+   del 1.º; el 3.º, el del 2.º. Sin extensión no hay `2`, `3` ni `B`.
+2. **Cuerpo**: lo exigen **todas** las `B` (`1`, `2B`, `3B` y sus reseteadas):
+   «quiebra **con cuerpo** el mínimo anterior». Antes solo lo pedía la `1`.
+3. **El engaño caduca**: si el precio vuelve y el quiebre llega 12 velas
+   después de la última salida sobre el techo, ya no es una `1`.
+4. **El techo manda**: un cierre más allá de la EMA50 cancela el toque
+   pendiente, aunque llegue antes de la caducidad del quiebre.
+5. **Reset**: la jugada que se fue sobre la EMA50 y volvió lleva `R` en la
+   siguiente, no solo la que se operó.
+6. **El nivel de la `1`**: rompe el mínimo del **tramo del engaño**, no el de
+   las 12 velas previas al toque (`nivelUnoPorEngano`).
+
+La `2B` tiene tres lecturas y el modo se elige por parámetro:
+`modo2B: 'retesteo'` (**por defecto**, diccionario del propietario: «quiebre +
+retesteo»: el quiebre arma la jugada y la entrada espera la vuelta al nivel,
+dentro de `caducidadRetesteo` velas y con `tolRetesteoAtr` de tolerancia),
+`modo2B: 'continuacion'` (se opera el quiebre al cierre) o
+`modo2B: 'reversion'` (Sperandeo: se opera el **fracaso** del quiebre, al otro
+lado, con stop en el extremo marginal). Con retesteo y cuerpo en las `B` el
+grupo de roturas pasa de +0,046R (n=558) a **+0,070R (n=470)**; las tres
+variantes se miden en `v03-lab/reporte.md`.
 
 ## 2. Archivos
 
 | Archivo | Qué es |
 |---|---|
-| `cliente_mt5.js` | Cliente del protocolo (login, ticks, velas). Eventos: `listo`, `tick`, `velas`, `cerrar` |
-| `estrategia.js` | Motor puro SIN estrategia: zonas, fases de toque, TN, sesgo, scoring — todo configurable |
-| `doc_estrategia.js` | Esquema del documento de estrategia + validación ESTRICTA (cero valores de estrategia) |
-| `importador.js` | Importa documentos externos a documento de estrategia (ver tabla abajo) |
-| `gestor_estrategia.js` | Carga/activa/persiste el documento activo (`estrategias/activa.json`) |
-| `ui.html` | Panel web con el botón de importación (servido en `/`) |
-| `servidor.js` | HTTP: `/`, `/salud`, `/estado`, `/estrategia`, `/importar`, `/estrategia/activar`… |
-| `telegram.js` | Notificaciones (Bot API, sin deps) |
-| `app.js` | Punto de entrada: cablea todo + reconexión + hot-swap de estrategia |
-| `estrategias/` | Documentos de estrategia (`raptor_default.json`, `activa.json`, `importados/`) |
-| `test_estrategia.js` | Tests offline del escenario completo (EARLY→MAIN→LATE→TN) |
-| `test_importador.js` | Tests del importador con documentos sintéticos y un .ex5 real |
-| `.env.ejemplo` | Plantilla de configuración (solo credenciales y switches — nada de estrategia) |
+| `cliente_mt5.js` | Cliente del protocolo MT5 (login, ticks, velas) |
+| `nucleo.js` | **Las reglas**: EMAs, ATR, toques, engaño, quiebre y reset. Escaneo puro y determinista |
+| `telegram.js` | Formato y entrega de los mensajes (cola, reintentos, escape) |
+| `urgente.js` | Push ntfy + alarma local (la señal llega antes que por Telegram) |
+| `outbox.js` | Ni una señal se pierde ni se duplica al reiniciar |
+| `servidor.js` | `/salud` y `/estado` |
+| `app.js` | Arranque: cliente → núcleo → canales, con reconexión |
+| `test_nucleo.mjs` | Serie sintética que genera cada código y comprueba los invariantes |
+| `calibrar.mjs` | Calibra los parámetros con datos reales: 2.025 combinaciones, elige con el 70 % y valida con el 30 % |
+| `test_protocolo.mjs`, `test_urgente.mjs` | Protocolo MT5 y carril urgente |
 
-## 3. Estrategia como documento + botón de importación
-
-El panel web (`http://localhost:3000/`) tiene:
-
-- **Estrategia activa** — nombre, fuente y parámetros clave del documento vigente.
-- **Importar documento** — botón que acepta:
-
-| Formato | Qué hace |
-|---|---|
-| `.json` / `.md` / `.txt` | Documento de estrategia directo o con bloque ` ```json ``` ` dentro |
-| `.set` | Parámetros de un Expert de MT5: mapea los reconocibles y lista el resto |
-| `.tpl` | Plantilla de gráfico de MT5: extrae indicadores (MA/EMA, ATR, Fractals…) |
-| `.mq5` / `.mq4` / `.mqh` | Código fuente: extrae `inputs`, llamadas a indicadores (iMA, iATR, iFractals, iStochastic…), SL/TP → **anatomía** del bot, nunca su clon |
-| `.ex5` / `.ex4` | Bot compilado: **radiografía de cabecera** (autor, link, versión, build, fecha, entropía). El cuerpo va cifrado por MetaQuotes: sin reglas legibles sin ingeniería inversa del terminal (fase 2) |
-| `.mt5` | Cualquier documento de bot de MT5: se identifica por **contenido** (magia EX5/EX4 → radiografía; texto con json/.tpl/.set dentro → su importador) |
-
-La PWA (`pwa/`) tiene su propio **botón de radiografía** (`radio.js`) que analiza
-esta misma familia de archivos EN el navegador del teléfono, sin enviar el
-archivo a ningún servidor.
-
-- Tras importar: **borrador editable** → **Validar** → **Activar**. Al activar,
-  el motor se reconstruye en caliente y re-siembra el historial sin reiniciar.
-- **Descargar activa** y **Restaurar integrada** para volver a la referencia.
-
-Todo documento importado queda copiado en `estrategias/importados/` (auditoría).
-Honestidad ante todo: el importador **no inventa estrategia** — los borradores
-parten de la plantilla neutra y solo aplican parámetros extraídos con certeza.
-
-## 4. Puesta en marcha
+## 3. Puesta en marcha
 
 ```bash
 cd motor-senales
 cp .env.ejemplo .env
 nano .env                  # credenciales + Telegram (opcional)
-npm test                   # 76 checks (motor + importador + PWA)
-npm run validar:port       # el port Node vs el Python: 1.650 señales, 0 diferencias
-npm run validar:reglas     # re-audita cada etiqueta contra su regla: 0 violaciones
-npm run demo:hibrida       # replay de velas reales con el formato de mensaje
-node app.js                # en marcha: panel http://localhost:3000/ + /estado
+npm test
+node app.js                # en marcha: /salud y /estado
 ```
 
-`validar:port` y `validar:reglas` necesitan los CSV de `backtest_hibrida/datos/`
-(están en `.gitignore`: son datos, no código).
+En producción, arranca bajo el supervisor: relanza el motor si el proceso
+muere por un fallo no capturado (el motor sale con código 1 y deja el stack
+en `motor.log`).
 
-Salida típica:
-
-```
-[INFO] listo: 15 símbolos suscritos
-[INFO] sembrando historial H1 de 15 símbolos (cmd 11)...
-[INFO] H1 FX Vol 20: 2158 velas (0 descartadas)
-[SEÑAL] VENTA FX Vol 20 2R score=85 precio=117037.47 estrategia=Raptor-híbrida v2
+```bash
+setsid nohup ./supervisor.sh >> motor.log 2>&1 < /dev/null & disown
+# parada ordenada (no se relanza):
+touch .supervisor-stop && pkill -f "[s]upervisor.sh"
 ```
 
-## 5. Telegram (recomendado)
-
-1. Habla con **@BotFather** → `/newbot` → copia el token.
-2. Envíale un mensaje cualquiera a tu bot.
-3. Abre `https://api.telegram.org/bot<TOKEN>/getUpdates` y saca tu `chat.id`.
-4. Pon ambos en `.env` (`TELEGRAM_TOKEN`, `TELEGRAM_CHAT`).
-
-Cada señal llega así:
-
-> 🟢 **COMPRA**
-> **1. Activo:** SFX Vol 40
-> **2. Temporalidad:** H1
-> **3. Estrategia:** 3R · MAIN · Raptor-híbrida v2
-> **4. Precio:** 119652.19
-> **5. Hora:** 2026-11-08 13:00 UTC
-
-El código delante es el **patrón que disparó la señal** (catálogo de Yoel) y, si
-la zona estaba en confluencia, la fase de la zona (`EARLY`/`MAIN`/`LATE`). Los
-avisos `2`/`3` **no se envían como operación**: son «ve a buscar la entrada» y
-salen por consola (ver `docs/estrategia/por_que_etiquetar_la_estrategia.md`).
-
-## 6. Despliegue en Render (gratis, 24/7)
-
-El motor usa **WebSocket saliente**, que Render free NO cuenta como actividad:
-el servicio se duerme a los 15 min sin tráfico entrante. Solución (verificada):
-
-1. Nuevo **Web Service** → repo → `motor-senales` → start: `node app.js`.
-2. Variables: `WT_LOGIN`, `WT_PASS`, `WT_HOST`, `TELEGRAM_*` (la estrategia
-   NO se configura por variables: se gestiona desde el panel `/`).
-3. **Pinger externo** (cron-job.org o UptimeRobot, gratis): GET a
-   `https://tu-app.onrender.com/salud` cada **10 min** → el servicio nunca duerme.
-4. Presupuesto: 744 h/mes ≤ 750 h gratis de Render. RAM/CPU: < 10 % de 512 MB.
-
-Alternativa sin límite de sueño: **Oracle Cloud Always Free** (2 OCPU/12 GB).
-
-## 7. Honesto y claro
-
-- Esto **no es** el indicador Raptor ni contiene su lógica interna (esa es
-  propietaria y de pago — ver `docs/RAPTOR_dossier_intel.md`). Es un motor
-  **original** inspirado en la estructura observable de su sistema.
-- Ninguna estrategia de señales garantiza ganancias. Esto es una herramienta
-  de análisis para tu cuenta demo/real: **gestiona el riesgo**.
-- Úsalo en cuenta **demo** para validar antes de considerar dinero real.
-- Los índices sintéticos son generados por el broker (él es tu contraparte).
-
-## 8. Ampliaciones futuras (roadmap)
-
-- **Fase 2 de .ex5**: ingeniería inversa del cargador del terminal MT5 con
-  Ghidra (como `scripts_re/`) para hacer un desensamblador propio del bytecode
-  y pasar de "radiografía" a "pseudo-lógica" de los bots adversarios.
-- Más indicadores configurables en el documento (Stochastic, RSI, Bands…) y
-  zonas por densidad de volumen.
-- Validación: registrar cada señal y su resultado a +N velas (como el
-  "historial de alertas para validación" de SIFO).
-- Ejecución automática: comandos de órdenes del protocolo (cmd pendiente de
-  revertir en `CKnWTLdC.js`).
-
-## Avisos de zona en tiempo real (opcionales, apagados)
-
-`MS_AVISO_INTRABAR=1` enciende el aviso de que el precio ha llegado a la banda de
-una zona fractal (`0,15 × ATR` de M5). **No es una señal de la estrategia** — esas
-son los toques `1 · 2 · 3` y sus rompimientos `1R · 2R · 3R` — y el mensaje lo dice
-(el rompimiento del toque lleva `R`, o `RB` si la secuencia venía de un reset; la seductora va
-aparte, como `1S`, porque no es el rompimiento de ningún toque)
-explícitamente. Sale como máximo una vez por símbolo y dirección cada 30 minutos, y
-lleva la cotización real (ask al comprar, bid al vender), no el punto medio
-`(bid+ask)/2` que se enviaba antes.
-
-## Símbolo y precio: por qué no se cruzan
-
-La respuesta de velas (`cmd 11`) **no dice de qué símbolo es**. Antes se repartía
-a todos los pedidos pendientes y, si un lote llegaba partido con más de 700 ms
-entre trozos, el resto se pegaba al símbolo siguiente: el búfer de un activo
-quedaba con los precios de otro y la señal salía con nombre de uno y precio de
-otro. Ahora:
-
-- el lote va **solo** al pedido en curso (`_pendiente11Actual`), y lo que llegue
-  sin pedido vivo se descarta;
-- hay un cooldown de 800 ms al cerrar cada lote para tragar los trozos tardíos;
-- `_loteValido()` descarta el lote si su último cierre se desvía más de un 20 %
-  del precio vivo del símbolo (FX Vol 20 ~118.000 · SFX Vol 20 ~35.300: eso no
-  es volatilidad, es un cruce).
-
-
-## Entrega en dos etapas y carril urgente (2026-11-09)
-
-El motor confirmaba la entrada al **cierre** de la vela del rompimiento: medido,
-eso son 10 min (p50) en M5, 30 en M15, 60 en M30 y 120 en H1 desde el toque que
-arma el nivel. El transporte nunca fue el problema (~4 s de cadena completa y
-0,001 ATR de precio perdido al leer el mensaje): el problema es **cuándo nace la
-señal**. Por eso ahora hay dos etapas y dos canales:
-
-| Etapa | Cuándo | Canal | Prioridad |
-|---|---|---|---|
-| 1 · **NIVEL EN JUEGO** | en el tick en que el precio entra en la banda de la zona (M5) | ntfy + alarma local | `high` |
-| 2 · **entrada confirmada** (1R/2R/3R, 1RB/2RB/3RB, 1S) | al cierre de la vela | Telegram + ntfy + alarma local | `urgent` |
-
-Variables nuevas:
+Variables que afectan al motor:
 
 | Variable | Por defecto | Qué hace |
 |---|---|---|
-| `NTFY_TOPIC` | — (vacío) | tema de ntfy; sin él, el carril urgente queda en la alarma local |
-| `NTFY_URL` | `https://ntfy.sh` | tu servidor ntfy si lo autoalojas |
-| `NTFY_TOKEN` | — | token `Bearer` si el tema es privado |
-| `MS_ALARMA` | encendida | `0` quita el pitido del PC |
-| `MS_ALARMA_CMD` | — | comando de sonido propio (p. ej. `mpv alarma.mp3`) |
-| `MS_AVISO_INTRABAR` | encendido | `0` apaga la etapa 1 |
-| `MS_TF_VIVO` | `M5` | temporalidades que se envían al móvil; el resto se calcula y se registra |
+| `MS_SIMBOLOS` | todos | lista separada por comas |
+| `MS_TF` | `M1,M5,M15,H1` | temporalidades escaneadas (RAPTOR: solo M1/M5/M15/H1) |
+| `MS_TF_VIVO` | todas las de `MS_TF` | las que se envían al móvil |
+| `MS_TF_TENDENCIA` | `H1` | TF mayor que manda el lado: si H1 es bajista no se envía ninguna COMPRA; si es lateral, se permite el TF menor |
+| `MS_MAX_LATENCIA_MS` | 1 periodo + 15 s | antigüedad máxima de una señal; más vieja se descarta |
+| `MS_GUARDAR_MS` | `600000` | freno de persistencia del estado (ms); por defecto una escritura cada 10 min |
+| `MS_OUTBOX_MAX_EDAD_MIN` | `15` | al arrancar, descarta pendientes de Telegram más viejos que N minutos |
+| `MS_CACHE_VELAS_MS` | `5000` | cuánto se reutilizan zonas y señales de `/velas` para la misma última vela |
+| `MS_HOSTS_PERMITIDOS` | — | hosts extra aceptados en `Host:` (coma); Render usa `RENDER_EXTERNAL_HOSTNAME` |
+| `MS_RATE_LIMITE` | `120` | peticiones HTTP por IP y ventana antes de responder 429 |
+| `MS_RATE_VENTANA_MS` | `60000` | tamaño de la ventana del rate limit (ms) |
+| `MS_TELEGRAM_TOQUES` | encendido | `0` deja el móvil solo con las entradas (2/3 y sus R llegan como aviso, no como señal) |
+| `MS_SOLO_RAYAS` | `0` | `1` apaga RAPTOR y deja solo el modo de prueba de rayas |
+| `MS_RAYAS` | `0` | `1` vuelve a calcular y enviar las rayas de tendencia |
+| `TELEGRAM_TOKEN`, `TELEGRAM_CHAT` | — | Bot API |
+| `NTFY_TOPIC` | — | push instantáneo |
+| `ESTADO_TOKEN` | — | protege `/estado` y abre el servidor a `0.0.0.0` |
 
-La etapa 1 **no es una entrada**: avisa de que el nivel está en juego ahora y que
-la confirmación llega al cierre. Así se ve el precio llegar en vez de enterarse
-cuando ya se fue.
+El servidor solo acepta `Host` de loopback, IPs privadas y los declarados en
+`MS_HOSTS_PERMITIDOS`/`RENDER_EXTERNAL_HOSTNAME` (corta DNS rebinding con un
+403). Un cuerpo mayor de 64 KB devuelve 413 y la conexión se cierra limpia.
+`/velas` entrega solo `velas`, `zonas` y `senales`: es lo único que dibuja la
+gráfica.
+
+Los números de las reglas (tolerancia del toque, ventana del mínimo anterior,
+cuerpo mínimo, caducidad del quiebre y del engaño) están en `PARAMS` de
+`nucleo.js`. El vídeo no los da: se **calibraron** con 4 símbolos × 4
+temporalidades × 30 días (`npm run calibrar`) y con las reglas completas dan
+0,032R de esperanza en train y 0,084R en validación (antes de añadirlas:
+0,092R / 0,044R). La validación sube; el train baja porque la `1` del vídeo
+genera más señales. El detalle está en
+[`docs/estrategia/video_03_reglas_implementables.md`](../docs/estrategia/video_03_reglas_implementables.md#11-calibración-con-datos-reales-2026-11-10).
+
+## 4. Honesto y claro
+
+- Esto **no es** el indicador Raptor ni contiene su lógica interna.
+- Ninguna estrategia de señales garantiza ganancias. Valida en **demo**.
+- Los índices sintéticos los genera el broker: él es tu contraparte.

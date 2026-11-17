@@ -23,9 +23,8 @@ import { ClienteMT5 } from './cliente_mt5.js';
 import { ClienteMT5Web } from '../pwa/proto.js';
 import { Estrategia as EstrategiaPWA } from '../pwa/motor.js';
 import { formatearSenal as formatearPWA } from '../pwa/motor.js';
-import { Estrategia as EstrategiaNodo } from './estrategia.js';
+import { Nucleo as EstrategiaNodo } from './nucleo.js';
 import { formatearSenal as formatearNodo } from './telegram.js';
-import { validarDoc, docACfg } from './doc_estrategia.js';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 let ok = 0, mal = 0;
@@ -237,8 +236,7 @@ async function testVelaFormandose() {
   const bufPwa = pwa.s.get('FX Vol 20').velas.M15;
   check('PWA: búfer sin la vela en formación', bufPwa.length === 1 && bufPwa[0].t === cerrada.t, JSON.stringify(bufPwa));
 
-  const vDoc = validarDoc(JSON.parse(fs.readFileSync(path.join(AQUI, 'estrategias', 'raptor_default.json'), 'utf8')));
-  const nodo = new EstrategiaNodo(docACfg(vDoc.doc));
+  const nodo = new EstrategiaNodo({ tfs: ['M15'] });
   nodo.setHistoria('FX Vol 20', 'M15', [cerrada, formandose]);
   const bufNodo = nodo.s.get('FX Vol 20').velas.M15;
   check('Node: búfer sin la vela en formación', bufNodo.length === 1 && bufNodo[0].t === cerrada.t, JSON.stringify(bufNodo));
@@ -259,7 +257,7 @@ async function testTelegramFormato() {
   const s = {
     lado: 'COMPRA', simbolo: 'FX Vol <20>', fase: 'MAIN', sesgo: 'alza',
     tfZona: 'M15', tfGatillo: 'M5', nivel: 98.6, precio: 98.9, sl: 97.4, tp: 101.1,
-    score: 75, estrategia: 'Raptor-propio v1',
+    score: 75, estrategia: 'Raptor-propio v1', tendencia: 'ALCISTA',
     motivo: 'MAIN en soporte (fuerza 2) & retest', t: Date.UTC(2026, 0, 2, 3, 4, 0),
   };
   const msg = formatearNodo(s);
@@ -268,20 +266,23 @@ async function testTelegramFormato() {
   check('Node: 1 es el activo', /^<b>1\. Activo:<\/b> FX Vol &lt;20&gt;$/.test(l[1]), l[1]);
   check('Node: 2 es la temporalidad', /^<b>2\. Temporalidad:<\/b> M15 · entrada M5$/.test(l[2]), l[2]);
   check('Node: 3 es la estrategia', /^<b>3\. Estrategia:<\/b> Raptor-propio v1$/.test(l[3]), l[3]);
-  check('Node: 4 es el precio entrada', /^<b>4\. Precio entrada:<\/b> 98\.9 \(vela cerrada\)$/.test(l[4]), l[4]);
-  check('Node: 5 es la hora UTC', /^<b>5\. Hora:<\/b> 2026-01-02 03:04 UTC$/.test(l[5]), l[5]);
-  check('Node: sin SL/TP (5 campos + cabecera)', l.length === 6 && !/(?:SL|TP):/.test(msg), `lineas=${l.length}`);
+  check('Node: 4 es la tendencia', /^<b>4\. Tendencia:<\/b> ALCISTA \(EMA30 &gt; EMA50 &gt; EMA100\)$/.test(l[4]), l[4]);
+  check('Node: 5 es el precio entrada', /^<b>5\. Precio entrada:<\/b> 98\.9 \(vela cerrada\)$/.test(l[5]), l[5]);
+  check('Node: 6 es la hora de Habana', /^<b>6\. Hora:<\/b> 2026-01-01 22:04 \(Habana\)$/.test(l[6]), l[6]);
+  check('Node: sin SL/TP (6 campos + cabecera)', l.length === 7 && !/(?:SL|TP):/.test(msg), `lineas=${l.length}`);
+  check('Node: incluye la tendencia del TF mayor',
+    formatearNodo({ ...s, tendenciaMayor: 'LATERAL', tfTendencia: 'H1' }).split('\n')[4].includes('H1 LATERAL'));
   check('Node: código de patrón delante del nombre',
     formatearNodo({ ...s, patron: '2R' }).split('\n')[3] === '<b>3. Estrategia:</b> 2R · Raptor-propio v1');
   check('Node: símbolo con < > escapado', !msg.includes('FX Vol <20>'));
   check('Node: VENTA usa icono rojo', formatearNodo({ ...s, lado: 'VENTA' }).startsWith('🔴 <b>VENTA</b>'));
   check('Node: sin estrategia cae a un nombre por defecto',
-    formatearNodo({ ...s, estrategia: undefined }).split('\n')[3] === '<b>3. Estrategia:</b> Raptor');
+    formatearNodo({ ...s, estrategia: undefined }).split('\n')[3] === '<b>3. Estrategia:</b> Raptor-v03');
   /* la PWA conserva su formato anterior */
   const p = formatearPWA(s);
   check('PWA: símbolo con < > escapado', p.includes('FX Vol &lt;20&gt;') && !p.includes('FX Vol <20>'));
   check('PWA: & escapado', p.includes('fuerza 2) &amp; retest'));
-  check('PWA: incluye hora UTC', /Hora: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/.test(p));
+  check('PWA: incluye hora de Habana', /Hora: \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(Habana\)/.test(p));
   check('PWA: sin SL/TP', !/(?:SL|TP):/.test(p));
 }
 
@@ -294,6 +295,7 @@ async function testCruceVelas() {
   cliente.ids = { 'FX Vol 20': 1, 'SFX Vol 20': 2 };
   cliente._enviarPacket = () => { };                       // sin socket: test offline
   cliente._ultimoPrecio = { 'FX Vol 20': 118000, 'SFX Vol 20': 35300 };
+  cliente._ultimoTick = { 'FX Vol 20': Date.now(), 'SFX Vol 20': Date.now() };
 
   const recibido = {};
   const t1 = setTimeout(() => { }, 4000);
@@ -327,6 +329,78 @@ async function testCruceVelas() {
   cliente._pendiente11Actual = null;
 }
 
+/* ---------- 14. motor: una vela → un lado; servidor manda; H1 se refresca ---------- */
+async function testCorreccionesMotor() {
+  console.log('— motor: vela con un solo lado · vela del servidor · caché H1 —');
+  const n = new EstrategiaNodo({ tfs: ['M15'], tfTendencia: 'H1', archivoPersistencia: null });
+
+  check('primer lado de la vela permitido', n._puedeEmitirLado('X', 'M15', 1000, 'COMPRA'));
+  check('lado contrario en la misma vela bloqueado', !n._puedeEmitirLado('X', 'M15', 1000, 'VENTA'));
+  check('mismo lado sigue permitido', n._puedeEmitirLado('X', 'M15', 1000, 'COMPRA'));
+
+  n.sembrarEmitidas(['Y|M15|2000|entrada|VENTA|3B']);
+  check('sembrarEmitidas recupera el lado ya emitido', !n._puedeEmitirLado('Y', 'M15', 2000, 'COMPRA'));
+
+  const ahora = Date.now();
+  const t = ahora - 900e3 - 5000;
+  n.setHistoria('X', 'M15', [{ t, o: 100, h: 101, l: 99, c: 100.5 }]);
+  n.onVelaCerrada('X', 'M15', { t, o: 100, h: 102, l: 98, c: 101, fuente: 'tick' });
+  let v = n.s.get('X').velas.M15[0];
+  check('la vela de ticks no pisa la del servidor', v.c === 100.5 && v.h === 101, JSON.stringify(v));
+  n.onVelaCerrada('X', 'M15', { t, o: 100, h: 101.2, l: 98.8, c: 100.7, fuente: 'server' });
+  v = n.s.get('X').velas.M15[0];
+  check('la revisión del servidor sí actualiza la vela', v.c === 100.7, JSON.stringify(v));
+
+  const H1 = Array.from({ length: 120 }, (_, i) => ({
+    t: i * 3600e3, o: 1000 - i, h: 1001 - i, l: 999 - i, c: 1000 - i, fuente: 'server',
+  }));
+  n.s.set('H1X', { velas: { H1 }, cur: {}, ahora: H1[H1.length - 1].t });
+  const tCierre = H1[H1.length - 1].t + 3600e3;
+  const antes = n._tendenciaMayor('H1X', tCierre);
+  for (let k = H1.length - 20; k < H1.length; k++) H1[k].c = 5000;
+  const despues = n._tendenciaMayor('H1X', tCierre);
+  check('el H1 se recalcula si revisan el último cierre',
+    !!antes && antes.tendencia === 'BAJISTA' && !!despues && despues.tendencia !== antes.tendencia,
+    `antes=${antes?.tendencia} despues=${despues?.tendencia}`);
+  n.destruir();
+}
+
+/* ---------- 12. reconexión: la clave de sesión no sobrevive al socket ---------- */
+async function testReconexionClave() {
+  console.log('— reconexión: el handshake vuelve a la clave estática (1006 en bucle) —');
+  const Original = globalThis.WebSocket;
+  const sockets = [];
+  class WSFalso {
+    constructor() { this.readyState = 1; sockets.push(this); }
+    send(f) { this.enviado = Buffer.from(f); }
+    close() { this.readyState = 3; }
+  }
+  const descifrar = (frame, clave) => {
+    const d = crypto.createDecipheriv('aes-256-cbc', clave, Buffer.alloc(16));
+    return Buffer.concat([d.update(frame.subarray(8)), d.final()]);
+  };
+  globalThis.WebSocket = WSFalso;
+  try {
+    for (const [nombre, fabricar] of [['Node', () => new ClienteMT5({})], ['PWA', () => new ClienteMT5Web({})]]) {
+      sockets.length = 0;
+      const cliente = fabricar();
+      cliente.clave = CLAVE_SESION;    // clave que dejó la sesión anterior
+      cliente.etapa = 'listo';
+      cliente.conectar();
+      const ws = sockets[0];
+      await ws.onopen();
+      await espera(40);
+      let cmd = null;
+      try { cmd = descifrar(ws.enviado, CLAVE_ESTATICA).readUInt16LE(2); } catch (e) { cmd = 'no descifra'; }
+      check(`${nombre}: handshake del reintento cifrado con la clave estática (cmd ${cmd})`, cmd === 0);
+      cliente._cerrar();
+      await espera(5);
+    }
+  } finally {
+    globalThis.WebSocket = Original;
+  }
+}
+
 /* ---------- ejecución ---------- */
 try {
   await testHandshake();
@@ -338,6 +412,8 @@ try {
   await testVelaFormandose();
   await testTelegramFormato();
   await testCruceVelas();
+  await testCorreccionesMotor();
+  await testReconexionClave();
 } catch (e) {
   mal++;
   console.error('✗ excepción en el test:', e);

@@ -1,4 +1,5 @@
 'use strict';
+const { horaHabana } = require('./tiempo');
 /* Notificación por Telegram (Bot API oficial, sin dependencias).
    Requiere TELEGRAM_TOKEN y TELEGRAM_CHAT en .env o entorno.
 
@@ -98,14 +99,34 @@ function estadoTelegram() {
 /* escHTML: el símbolo viene del catálogo del servidor — si trajera <, > o &
    el parse_mode HTML devolvía 400 y la señal NUNCA llegaba */
 const escTg = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+/* Recorte previo al escape: Telegram rechaza mensajes > 4096 caracteres.
+   Se truncan campos de texto libre (simbodo, temporalidad, patrón, estrategia,
+   tendencia) sin tocar entidades HTML ni el formato de los números. */
+const _recortarTg = (v, max) => {
+  const s = String(v ?? '');
+  return s.length > max ? s.slice(0, max) + '…' : s;
+};
 
 /* Formatea un precio: máximo 5 decimales, sin ceros sobrantes.
    195767.89 no se convierte en 195767.89000. Devuelve '—' si no es válido. */
 function _fmtPrecio(v) {
   if (!Number.isFinite(v) || v <= 0) return '—';
-  const n = Number(v).toFixed(5);
-  return n.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.$/, '');
+  return Number(v).toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
 }
+
+/* Tendencia que el operador ve en el gráfico; se muestra junto al lado para
+   que no haya duda de que la señal va a favor de la pila EMA30/50/100. */
+function _tendenciaTxt(t) {
+  if (t === 'ALCISTA') return 'ALCISTA (EMA30 > EMA50 > EMA100)';
+  if (t === 'BAJISTA') return 'BAJISTA (EMA30 < EMA50 < EMA100)';
+  if (t === 'LATERAL') return 'LATERAL (precio y EMAs no alineados)';
+  return '—';
+}
+
+/* El TF mayor va corto: ALCISTA/BAJISTA ya se entienden. En LATERAL se
+   aclara que no siempre son EMAs cruzadas: también puede ser precio en el
+   lado contrario de la EMA30 (retroceso dentro de una pila alineada). */
+const _tendenciaMayorTxt = (t) => (t === 'LATERAL' ? 'LATERAL (precio y EMAs no alineados)' : t);
 
 /* Formato pedido: lado + 5 campos numerados (activo, temporalidad,
    estrategia, precio, hora). Sin SL/TP: el mensaje es la señal, no
@@ -116,25 +137,29 @@ function _fmtPrecio(v) {
      2. Temporalidad: M15 · entrada M5
      3. Estrategia: Raptor-híbrida
      4. Precio entrada: 2458.12 (vela cerrada)
-     5. Hora: 2026-11-08 14:35 UTC */
+     5. Hora: 2026-11-08 09:35 (Habana) */
 function formatearSenal(s) {
   const icono = s.lado === 'COMPRA' ? '🟢' : '🔴';
-  const hora = new Date(s.t || Date.now()).toISOString().slice(0, 16).replace('T', ' ');
+  /* La hora que se enseña es la de la VELA (su apertura), que es como la
+     etiqueta MT5; s.t es el instante de emisión (cierre) y se usa solo si no
+     viene tVela. */
+  const hora = horaHabana(s.tVela ?? s.t ?? Date.now());
   const tf = s.tfGatillo && s.tfGatillo !== s.tfZona
-    ? `${s.tfZona} · entrada ${s.tfGatillo}`
-    : s.tfZona;
-  /* el código de patrón (1, 2, 3 · 1R, 2R, 3R) es lo que identifica la
-     jugada de Yoel; el nombre del documento queda como contexto */
+    ? `${_recortarTg(s.tfZona, 24)} · entrada ${_recortarTg(s.tfGatillo, 24)}`
+    : _recortarTg(s.tfZona, 48);
+  /* el código de patrón del vídeo 03 (1 · 2B · 2RB · 3B · 3RB y las
+     entradas al toque 2/3 · 2R/3R) es lo que identifica la jugada */
   const etiquetaEstrategia = s.patron
-    ? `${escTg(s.patron)} · ${escTg(s.estrategia || 'Raptor')}`
-    : escTg(s.estrategia || 'Raptor');
+    ? `${escTg(_recortarTg(s.patron, 24))} · ${escTg(_recortarTg(s.estrategia || 'Raptor-v03', 48))}`
+    : escTg(_recortarTg(s.estrategia || 'Raptor-v03', 48));
   return [
     `${icono} <b>${escTg(s.lado || (icono === '🟢' ? 'COMPRA' : 'VENTA'))}</b>`,
-    `<b>1. Activo:</b> ${escTg(s.simbolo)}`,
+    `<b>1. Activo:</b> ${escTg(_recortarTg(s.simbolo, 64))}`,
     `<b>2. Temporalidad:</b> ${escTg(tf || '—')}`,
     `<b>3. Estrategia:</b> ${etiquetaEstrategia}`,
-    `<b>4. Precio entrada:</b> ${_fmtPrecio(s.precio)} (vela cerrada)`,
-    `<b>5. Hora:</b> ${hora} UTC`,
+    `<b>4. Tendencia:</b> ${escTg(_recortarTg(_tendenciaTxt(s.tendencia), 48))}${s.tfTendencia && s.tfTendencia !== s.tfZona && s.tendenciaMayor ? ` · ${escTg(_recortarTg(s.tfTendencia, 24))} ${escTg(_recortarTg(_tendenciaMayorTxt(s.tendenciaMayor), 48))}` : ''}`,
+    `<b>5. Precio entrada:</b> ${_fmtPrecio(s.precio)} (vela cerrada)`,
+    `<b>6. Hora:</b> ${hora} (Habana)`,
   ].join('\n');
 }
 
@@ -146,7 +171,7 @@ function formatearAviso(m) {
   if (!m || typeof m !== 'object') return `⚠️ <b>AVISO (no es entrada)</b>\n${escTg(String(m ?? ''))}`;
   const esIntrabar = m.origen === 'intrabar';
   const icono = m.lado === 'COMPRA' ? '🟢' : '🔴';
-  const hora = new Date(m.t || Date.now()).toISOString().slice(0, 16).replace('T', ' ');
+  const hora = horaHabana(m.t || Date.now());
   const zona = m.zonaTipo
     ? `${escTg(m.zonaTipo)}${m.zonaFuerza ? ` (fuerza ${m.zonaFuerza})` : ''}`
     : 'sin zona';
@@ -158,14 +183,14 @@ function formatearAviso(m) {
       ? ` (bid ${_fmtPrecio(m.bid)} / ask ${_fmtPrecio(m.ask)})` : '';
     return [
       '🔔 <b>ZONA</b> — el precio ha llegado a una zona',
-      '<i>No es una señal de la estrategia (1 · 2 · 3 / 1R · 2R · 3R).</i>',
+      '<i>No es una entrada del catálogo (1 · 2B · 3B / reset R).</i>',
       `${icono} <b>${escTg(m.lado)}</b>`,
       `<b>1. Activo:</b> ${escTg(m.simbolo)}`,
       `<b>2. Temporalidad:</b> ${escTg(m.tfZona || '—')}`,
       `<b>3. Zona:</b> ${zona}`,
       `<b>4. Precio ahora:</b> ${_fmtPrecio(m.precio)}${cot}`,
       `<b>5. Nivel de la zona:</b> ${_fmtPrecio(m.nivelRoto)}${dist}`,
-      `<b>6. Hora:</b> ${hora} UTC`,
+      `<b>6. Hora:</b> ${hora} (Habana)`,
     ].join('\n');
   }
   /* El nivel del toque es el extremo de las 8 velas anteriores. Si la propia
@@ -174,19 +199,60 @@ function formatearAviso(m) {
      superado parecía una señal invertida. Se nombra como lo que es. */
   const nivelDetras = Number.isFinite(m.precio) && Number.isFinite(m.nivelRoto)
     && (m.lado === 'COMPRA' ? m.nivelRoto <= m.precio : m.nivelRoto >= m.precio);
-  const campoNivel = nivelDetras
-    ? `<b>5. Nivel del toque:</b> ${_fmtPrecio(m.nivelRoto)} — ya superado por la vela del toque; la entrada llega con el cierre de continuación`
-    : `<b>5. Nivel a romper:</b> ${_fmtPrecio(m.nivelRoto)}`;
-  return [
+  /* RAPTOR no usa zonas: si no hay zona, no se inventa «sin zona» ni se
+     deja un hueco en la numeración. */
+  const nivelLabel = nivelDetras ? 'Nivel del toque' : 'Nivel a romper';
+  const nivelValor = nivelDetras
+    ? `${_fmtPrecio(m.nivelRoto)} — ya superado por la vela del toque; la entrada llega con el cierre de continuación`
+    : _fmtPrecio(m.nivelRoto);
+  const lineas = [
     `⚠️ <b>AVISO ${escTg(m.patron)} — no es entrada</b>`,
     `${icono} <b>${escTg(m.lado)}</b>`,
     `<b>1. Activo:</b> ${escTg(m.simbolo)}`,
     `<b>2. Temporalidad:</b> ${escTg(m.tfZona || '—')}`,
-    `<b>3. Zona:</b> ${zona}`,
-    `<b>4. Precio de referencia:</b> ${_fmtPrecio(m.precio)} (cierre de la vela)`,
-    campoNivel,
-    `<b>6. Hora:</b> ${hora} UTC`,
+    `<b>3. Estrategia:</b> ${escTg(m.estrategia || (String(m.patron || '').includes('E') ? 'Estructura' : 'Raptor-v03'))}`,
+    `<b>4. Tendencia:</b> ${escTg(_tendenciaTxt(m.tendencia))}${m.tfTendencia && m.tfTendencia !== m.tfZona && m.tendenciaMayor ? ` · ${escTg(m.tfTendencia)} ${escTg(_tendenciaMayorTxt(m.tendenciaMayor))}` : ''}`,
+  ];
+  let n = 5;
+  if (m.zonaTipo) lineas.push(`<b>${n++}. Zona:</b> ${zona}`);
+  lineas.push(`<b>${n++}. Precio de referencia:</b> ${_fmtPrecio(m.precio)} (cierre de la vela del toque)`);
+  lineas.push(`<b>${n++}. ${nivelLabel}:</b> ${nivelValor}`);
+  lineas.push(`<b>${n++}. Hora:</b> ${hora} (Habana)`);
+  return lineas.join('\n');
+}
+
+/* Formato para los avisos de RAYA de tendencia (M5/M15/M30/H1).
+   Tres casos:
+     · 'cambio' — el precio cruzó la raya y no regresó.
+     · 'engano' — el precio cruzó la raya y volvió al lado viejo.
+     · 'toque'  — el precio tocó la raya con el cuerpo y continuó
+                   con la tendencia vigente.
+   No es una entrada del catálogo; es un aviso de la raya de tendencia. */
+function formatearRaya(e) {
+  if (!e || typeof e !== 'object') return `⚠️ <b>RAYA</b>\n${escTg(String(e ?? ''))}`;
+  const esCambio = e.clase === 'cambio';
+  const esToque = e.clase === 'toque';
+  const icono = e.lado === 'COMPRA' ? '🟢' : '🔴';
+  const hora = horaHabana(e.t || Date.now());
+  const r = e.raya || {};
+  const tipoRaya = r.tipo === 'bajista' ? 'bajista (máximos)' : 'alcista (mínimos)';
+  const titulo = esCambio
+    ? '📈 <b>CAMBIO de tendencia — el precio cruzó la raya y no regresó</b>'
+    : esToque
+      ? '🫳 <b>TOQUE — el precio tocó la raya y continúa con la tendencia</b>'
+      : '🪤 <b>ENGAÑO — el precio cruzó la raya y volvió al lado viejo</b>';
+  return [
+    titulo,
+    '<i>No es una entrada del catálogo; es un aviso de la raya de tendencia.</i>',
+    `${icono} <b>${escTg(e.lado)}</b>`,
+    `<b>1. Activo:</b> ${escTg(e.simbodo)}`,
+    `<b>2. Temporalidad:</b> ${escTg(e.tf || '—')}`,
+    `<b>3. Raya:</b> ${escTg(tipoRaya)} · ${r.toques ?? 0} toques${e.nToque ? ` · toque nº ${e.nToque}` : ''}`,
+    `<b>4. Precio:</b> ${_fmtPrecio(e.precio)}`,
+    `<b>5. Ruptura de la raya:</b> ${_fmtPrecio(r.valorRuptura)}`,
+    `<b>6. Evento:</b> ${_fmtPrecio(r.valorEvento)}`,
+    `<b>7. Hora:</b> ${hora} (Habana)`,
   ].join('\n');
 }
 
-module.exports = { enviarTelegram, formatearSenal, formatearAviso, telegramConfigurado, estadoTelegram };
+module.exports = { enviarTelegram, formatearSenal, formatearAviso, formatearRaya, telegramConfigurado, estadoTelegram };

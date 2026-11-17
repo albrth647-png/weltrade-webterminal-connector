@@ -65,9 +65,11 @@ class ClienteMT5 extends EventEmitter {
     this._pendientes11 = new Map(); // nombre -> {resolver, timer}
     this._pendiente11Actual = null;   // el ÚNICO pedido de velas en curso
     this._ultimoPrecio = {};          // nombre -> último precio vivo (guard de cruce)
+    this._ultimoTick = {};            // nombre -> ts del último tick (frescura por símbolo)
     this._cola11 = null;              // serialización de peticiones de velas
     this._silencio11Hasta = 0;        // ventana anti-respuesta-tardía tras un timeout
     this._cerrada = false;            // guard de idempotencia de _cerrar
+    this._feedMuerto = false;         // true cuando el feed murió por falta de ticks (rate limit / silencio del servidor)
     this._ultimoRX = 0;               // último byte recibido (detector de socket medio-abierto)
     this._tAbrir = null;
   }
@@ -82,21 +84,35 @@ class ClienteMT5 extends EventEmitter {
   }
 
   conectar() {
+    /* Un socket anterior vivo debe cerrarse ANTES de abrir otro. Dos sesiones
+       de la misma cuenta hacen que el servidor tumbe una; peor aún, su
+       onclose tardío llamaba a _cerrar() y mataba la sesión nueva. */
+    const previa = this.ws;
+    this.ws = null;
+    if (previa) { try { previa.close(); } catch (e) { /* ya cerrado */ } }
     this.etapa = 'conectando';
     this._cerrada = false;                    // nueva sesión: el guard de cierre se reinicia
+    this._feedMuerto = false;                 // nueva sesión: reset del flag de feed muerto
+    /* La clave de sesión (32 B del handshake) caduca con el socket. Sin este
+       reset el handshake del reintento iba cifrado con la clave de la sesión
+       anterior, el servidor no lo podía descifrar y cerraba con 1006 a los 2 s:
+       el proceso quedaba desconectado en bucle hasta reiniciarlo a mano. */
+    this.clave = CLAVE_ESTATICA;
     const ws = new WebSocket(`wss://${this.host}/terminal`);
     this.ws = ws;
     ws.binaryType = 'arraybuffer';
     this._ultimoRX = Date.now();
+    this._tConectado = Date.now();
     this._ping = setInterval(() => {
       // socket medio-abierto: 3 pulsos sin recibir NADA = muerto → cerrar ya
       if (Date.now() - this._ultimoRX > 25000) {
-        this._log('sin respuesta del servidor durante 25 s — cerrando para reconectar');
+        this._log('sin respuesta del servidor durante 25 s — marcando feed muerto y cerrando para reconectar');
+        this._feedMuerto = true;
         this.cerrar();
         return;
       }
       this._enviar(51, Buffer.alloc(0));
-    }, 8000);
+    }, 5000);
     this._tAbrir = setTimeout(() => {
       if (this.etapa !== 'listo') {
         this._log('sin sesión completa tras 20 s — cerrando para reintentar');
@@ -105,8 +121,21 @@ class ClienteMT5 extends EventEmitter {
     }, 20000);
 
     ws.onopen = () => { this.etapa = 'handshake'; this._enviar(0, Buffer.alloc(64)); };
-    ws.onclose = () => this._cerrar();
-    ws.onerror = () => { /* onclose llega después */ };
+    /* El código y el motivo del cierre son la única pista de por qué el
+       servidor corta: 1000 = cierre normal, 1006 = red/abrupto, 4xxx = el
+       servidor rechaza la sesión. Sin esto solo veíamos «sesión cerrada». */
+    ws.onclose = (ev) => {
+      /* Cierre tardío de un socket que ya no es el actual: no tocar la sesión
+         viva ni programar otra reconexión. */
+      if (this.ws !== ws) return;
+      const seg = this._tConectado ? Math.round((Date.now() - this._tConectado) / 1000) : null;
+      this._log(`socket cerrado tras ${seg ?? '?'} s (code ${ev?.code ?? '?'}${ev?.reason ? ', ' + ev.reason : ''})`);
+      this._cerrar();
+    };
+    ws.onerror = (ev) => {
+      const detalle = ev?.message || ev?.error?.message || ev?.type || 'sin detalle';
+      this._log('socket error: ' + detalle);
+    };
     ws.onmessage = (ev) => this._onMensaje(Buffer.from(ev.data));
   }
 
@@ -127,6 +156,24 @@ class ClienteMT5 extends EventEmitter {
   cerrar() { try { this.ws && this.ws.close(); } catch (e) { } this._cerrar(); }
 
   _onMensaje(buf) {
+    /* Un frame truncado, corrupto o de un servidor hostil NO puede tumbar el
+       motor. Antes, un cmd 6 con cuerpo de 0-3 B lanzaba
+       ERR_BUFFER_OUT_OF_BOUNDS desde ws.onmessage (fuera de try) y mataba el
+       proceso entero. */
+    try {
+      /* ws.onmessage entrega ArrayBuffer; los tests y la PWA pasan Uint8Array.
+         Se normaliza a Buffer antes de parsear. */
+      this._procesarMensaje(Buffer.isBuffer(buf) ? buf : Buffer.from(buf));
+    } catch (e) {
+      try { this._log(`frame descartado (${e.code || e.name || 'error'}): ${e.message}`); } catch (_) { /* el log nunca debe relanzar */ }
+    }
+  }
+
+  _procesarMensaje(buf) {
+    if (!buf || buf.length < 8) {
+      this._log('frame descartado: cabecera incompleta');
+      return;
+    }
     this._ultimoRX = Date.now();   // hay señal vital aunque el frame no se entienda
     let p;
     try { p = parseRX(aesDec(this.clave, buf.subarray(8))); } catch (e) { return; }
@@ -159,7 +206,14 @@ class ClienteMT5 extends EventEmitter {
     // Catálogo: registros de 526 B, nombre UTF-16 @0, id u32 @196
     if (p.cmd === 6 && this.etapa === 'catalogo') {
       const b = p.body;
-      const n = b.readUInt32LE(0);
+      /* Guard de longitud + tope al número de registros que caben de verdad:
+         un contador corrupto (0xFFFFFFFF) ya no recorre memoria fuera del
+         buffer ni permite un bucle desmedido. */
+      if (b.length < 4) {
+        this._log('catálogo truncado: falta el contador de símbolos');
+        return;
+      }
+      const n = Math.min(b.readUInt32LE(0), Math.floor((b.length - 4) / 526));
       for (let k = 0; k < n && 4 + (k + 1) * 526 <= b.length; k++) {
         const base = 4 + k * 526;
         const id = b.readUInt32LE(base + 196);
@@ -190,6 +244,7 @@ class ClienteMT5 extends EventEmitter {
         /* precio vivo: es lo que permite detectar velas de OTRO activo antes de
            meterlas en el histórico (la respuesta de cmd 11 no trae el símbolo) */
         this._ultimoPrecio[simbolo] = (bid + ask) / 2;
+        this._ultimoTick[simbolo] = Date.now();
         this.emit('tick', { simbolo, bid, ask, t: Date.now() });
       }
       return;
@@ -216,7 +271,12 @@ class ClienteMT5 extends EventEmitter {
         if (this._pendiente11Actual === nombre) this._pendiente11Actual = null;
         /* Cooldown tras cerrar el lote: un trozo tardío ya no puede entrar en
            el pedido del símbolo siguiente. */
-        this._silencio11Hasta = Date.now() + 800;
+        /* Ventana de silencio adaptativa: un lote grande llega en muchos
+           frames y sus últimos trozos pueden pisar la petición siguiente, así
+           que necesita 2,5 s. Una respuesta incremental (pocas velas, un solo
+           frame) no tiene cola que se retrase y con 800 ms basta: así el
+           refresco rápido de M1/M5 no se queda esperando 2,5 s por símbolo. */
+        this._silencio11Hasta = Date.now() + ((pend.buf && pend.buf.length >= 200) ? 2500 : 400);
         pend.resolver(this._loteValido(nombre, pend.buf, pend.descartadas || 0));
       }, 700);
       return;
@@ -239,10 +299,36 @@ class ClienteMT5 extends EventEmitter {
     return this._cola11;
   }
 
+  /* Espera a tener precio vivo del símbolo. Sin él NO se pueden pedir velas:
+     la respuesta de cmd 11 no dice de qué instrumento son, así que el precio
+     vivo es la única prueba de identidad disponible. */
+  esperarPrecio(nombre, ms = 8000) {
+    const ok = () => Number.isFinite(this._ultimoPrecio[nombre]) && this._ultimoPrecio[nombre] > 0
+      && (Date.now() - (this._ultimoTick[nombre] || 0)) < 90000;
+    if (ok()) return Promise.resolve(true);
+    return new Promise((resolver) => {
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        if (ok()) { clearInterval(iv); resolver(true); return; }
+        if (Date.now() - t0 >= ms || this.etapa === 'apagado') { clearInterval(iv); resolver(false); }
+      }, 100);
+      if (iv.unref) iv.unref();
+    });
+  }
+
   async _pedirVelasUna(nombre, { tf = 'H1', dias = 90, desde = 0, hasta = 0, timeoutMs = 10000 } = {}) {
     const guardia = Math.max(0, this._silencio11Hasta - Date.now());
     if (guardia) await new Promise((ok) => setTimeout(ok, guardia));
     if (this.etapa !== 'listo' || !this.ids[nombre]) return null;
+    /* Puerta de identidad: sin precio vivo no se pide. Antes se pedía a ciegas
+       y el lote del símbolo anterior acababa guardado bajo el siguiente. */
+    if (!(Number.isFinite(this._ultimoPrecio[nombre]) && this._ultimoPrecio[nombre] > 0)) {
+      const hay = await this.esperarPrecio(nombre, 8000);
+      if (!hay) {
+        this._log(`velas de ${nombre}: sin precio vivo tras 8 s — no se piden (no se podría verificar el símbolo)`);
+        return null;
+      }
+    }
     const ENUM_TF = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 0x4001, H4: 0x4004, D1: 0x4018 };
     const periodo = ENUM_TF[tf] ?? 0x4001;
     const packet = Buffer.alloc(78);                          // [4B cabecera][60B símbolo][2B tf][8B rango]
@@ -258,7 +344,7 @@ class ClienteMT5 extends EventEmitter {
         if (pend && pend.debounce) clearTimeout(pend.debounce);
         this._pendientes11.delete(nombre);
         if (this._pendiente11Actual === nombre) this._pendiente11Actual = null;
-        this._silencio11Hasta = Date.now() + 1500;   // traga respuestas tardías del timeout
+        this._silencio11Hasta = Date.now() + 4000;   // traga respuestas tardías del timeout
         resolver(null);
       }, timeoutMs);
       this._pendientes11.set(nombre, { resolver, timer, iniciado: Date.now() });
@@ -274,12 +360,40 @@ class ClienteMT5 extends EventEmitter {
   _loteValido(nombre, velas, descartadas) {
     if (!velas || !velas.length) return { velas: velas || [], descartadas };
     const ref = this._ultimoPrecio[nombre];
+    /* Sin precio vivo no hay prueba de identidad: se rechaza el lote entero.
+       Antes se aceptaba a ciegas y cada símbolo terminó guardando el lote del
+       anterior (los 21 casos quedaron etiquetados con el activo equivocado). */
+    if (!(Number.isFinite(ref) && ref > 0)) {
+      this._log(`velas de ${nombre} descartadas: sin precio vivo con el que verificar el símbolo`);
+      return { velas: [], descartadas: descartadas + velas.length };
+    }
+    /* Frescura por símbolo: un precio de hace minutos no prueba identidad ni
+       sirve para anclar; el instrumento pudo quedarse sin ticks (M2). */
+    const edadTick = Date.now() - (this._ultimoTick[nombre] || 0);
+    if (!(edadTick < 90000)) {
+      this._log(`velas de ${nombre} descartadas: precio vivo congelado (${Math.round(edadTick / 1000)} s sin tick)`);
+      return { velas: [], descartadas: descartadas + velas.length };
+    }
     const ult = velas[velas.length - 1].c;
-    if (ref && Number.isFinite(ref) && Math.abs(ult - ref) / ref > 0.2) {
+    if (!Number.isFinite(ult) || Math.abs(ult - ref) / ref > 0.15) {
       this._log(`velas de ${nombre} descartadas: cierre ${ult} no cuadra con el precio vivo ${ref} (cruce de cmd 11)`);
       return { velas: [], descartadas: descartadas + velas.length };
     }
-    return { velas, descartadas };
+    /* Recorta a la cola CONTIGUA: si el lote mezcla dos instrumentos a mitad,
+       el cierre cuadra pero la mitad antigua es de otro activo. Se conserva
+       solo el tramo final cuyas velas encadenan (<5 % de salto por vela). */
+    let corte = velas.length - 1;
+    for (let i = velas.length - 2; i >= 0; i--) {
+      const a = velas[i].c, b = velas[i + 1].c;
+      if (!(a > 0) || !Number.isFinite(a) || !Number.isFinite(b)) break;
+      if (Math.abs(b - a) / a > 0.05) break;
+      corte = i;
+    }
+    if (corte > 0) {
+      this._log(`velas de ${nombre}: recortadas ${corte} iniciales que no encadenan con el tramo válido`);
+      descartadas += corte;
+    }
+    return { velas: velas.slice(corte), descartadas };
   }
 
   /* Parser de velas: registros de 48 B

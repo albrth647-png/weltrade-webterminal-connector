@@ -27,7 +27,7 @@ console.log('— 2. texto de una entrada (etapa 2) —');
   });
   check('lleva lado, activo, TF y patrón', /VENTA · SFX Vol 40 · M5 · 2RB/.test(t), t);
   check('lleva el precio y la invalidación', /precio 119889\.05 · invalida 119733\.29/.test(t), t);
-  check('lleva la hora UTC', /2026-11-09 18:25 UTC/.test(t), t);
+  check('lleva la hora de Habana', /2026-11-09 13:25 \(Habana\)/.test(t), t);
 }
 
 console.log('— 3. texto de nivel en juego (etapa 1) —');
