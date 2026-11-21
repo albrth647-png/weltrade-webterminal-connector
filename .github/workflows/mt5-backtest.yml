@@ -91,13 +91,21 @@ jobs:
           $dst = "$env:MT5_DIR\MQL5\Experts"
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
           Copy-Item -Path 'mt5-ea\EstrategiaAdversaria.mq5' -Destination $dst -Force
-          & "$env:MT5_DIR\metaeditor64.exe" "/compile:$dst\EstrategiaAdversaria.mq5" "/log:$env:RUNNER_TEMP\compile"
-          Start-Sleep -Seconds 2
-          if (Test-Path "$env:RUNNER_TEMP\compile.log") {
-            Get-Content "$env:RUNNER_TEMP\compile.log" -Encoding Unicode
+          $src = Join-Path $dst 'EstrategiaAdversaria.mq5'
+          $me  = Join-Path $env:MT5_DIR 'metaeditor64.exe'
+          if (-not (Test-Path $me)) { throw "no existe $me" }
+          # Start-Process -Wait es obligatorio: metaeditor es GUI y con '&' el
+          # script sigue antes de que termine de compilar.
+          $p = Start-Process -FilePath $me -ArgumentList @("/compile:$src", '/log') -Wait -PassThru
+          Write-Host "metaeditor exit=$($p.ExitCode)"
+          $log = [IO.Path]::ChangeExtension($src, '.log')
+          if (Test-Path $log) { Get-Content $log -Encoding Unicode }
+          $ex5 = [IO.Path]::ChangeExtension($src, '.ex5')
+          if (-not (Test-Path $ex5)) {
+            Get-ChildItem -Path $dst -Recurse -Filter '*.ex5' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "encontrado: $($_.FullName)" }
+            throw 'el EA no compilo (.ex5 ausente)'
           }
-          if (-not (Test-Path "$dst\EstrategiaAdversaria.ex5")) { throw 'el EA no compilo (.ex5 ausente)' }
-          Write-Host "EA compilado."
+          Write-Host "EA compilado: $ex5"
 
       - name: Una pasada del tester
         shell: pwsh
