@@ -114,6 +114,29 @@ jobs:
           }
           Write-Host "EA compilado: $ex5 ($((Get-Item $ex5).Length) bytes)"
 
+      - name: Calentar el terminal (descarga de simbolos)
+        shell: pwsh
+        env:
+          MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
+          MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
+          MT5_SERVER: ${{ secrets.MT5_SERVER }}
+          SIM: ${{ github.event.inputs.simbolo }}
+        run: |
+          $ini = @(
+            '[Common]',
+            "Login=$env:MT5_LOGIN",
+            "Password=$env:MT5_PASSWORD",
+            "Server=$env:MT5_SERVER",
+            '',
+            '[StartUp]',
+            "Symbol=$env:SIM"
+          ) -join "`r`n"
+          Set-Content -Path "$env:MT5_DIR\warm.ini" -Value $ini -Encoding ASCII
+          $p = Start-Process -FilePath "$env:MT5_DIR\terminal64.exe" -ArgumentList '/portable', "/config:`"$env:MT5_DIR\warm.ini`"" -PassThru
+          Start-Sleep -Seconds 90
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          Write-Host 'calentamiento terminado'
+
       - name: Una pasada del tester
         shell: pwsh
         env:
@@ -164,14 +187,47 @@ jobs:
           $s | ForEach-Object { Write-Host $_ }
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($s -join "`n")
 
+      - name: Volcar logs del terminal
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'bt_out\logs' | Out-Null
+          $patrones = @(
+            "$env:MT5_DIR\logs\*.log",
+            "$env:MT5_DIR\MQL5\Logs\*.log",
+            "$env:MT5_DIR\config\Tester\logs\*.log",
+            "$env:MT5_DIR\Tester\logs\*.log",
+            "$env:MT5_DIR\Tester\Agent*\MQL5\Logs\*.log",
+            "$env:MT5_DIR\Common\Files\bt\*.csv"
+          )
+          $n = 0
+          foreach ($pat in $patrones) {
+            foreach ($f in @(Get-ChildItem -Path $pat -ErrorAction SilentlyContinue)) {
+              Copy-Item $f.FullName -Destination 'bt_out\logs' -Force
+              $n++
+              Write-Host "--- $($f.FullName) ($($f.Length) bytes)"
+              if ($f.Extension -eq '.log') {
+                Get-Content $f.FullName -Tail 40 -Encoding Unicode | ForEach-Object { Write-Host "    $_" }
+              }
+            }
+          }
+          Write-Host "archivos de log copiados: $n"
+          Write-Host '--- arbol de Tester ---'
+          Get-ChildItem -Path "$env:MT5_DIR\Tester" -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 40 | ForEach-Object { Write-Host "  $($_.FullName)" }
+          Write-Host '--- bt.ini ---'
+          if (Test-Path "$env:MT5_DIR\bt.ini") { Get-Content "$env:MT5_DIR\bt.ini" | Where-Object { $_ -notmatch 'Password' } }
+
       - name: Subir resultados
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bt-${{ github.run_number }}
           path: |
+            bt_out\**\*
             bt_out\*.csv
             bt_out\*.md
+            C:\Program Files\MetaTrader 5\bt.ini
             C:\Program Files\MetaTrader 5\MQL5\Files\bt\*
             C:\Program Files\MetaTrader 5\Common\Files\bt\*
             C:\Program Files\MetaTrader 5\bt_report*
