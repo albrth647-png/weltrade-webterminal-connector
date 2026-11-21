@@ -1,0 +1,166 @@
+name: MT5 backtest (una pasada -> CSV)
+
+# Una pasada del Strategy Tester = un CSV de senales + las barras de cada TF.
+# Todo el calculo ocurre en el runner; local solo se baja el artifact.
+#
+# Lo que hace:
+#   1. instala MetaTrader 5 en el runner Windows
+#   2. compila el EA (EstrategiaAdversaria.mq5)
+#   3. lanza UNA pasada del tester con bt.ps1 (Model=1, OHLC de M1)
+#   4. imprime la cobertura REAL de barras (el tester no avisa si pides mas
+#      historia de la que el broker tiene) y el conteo de senales
+#   5. sube bt_out/*.csv + los logs como artifact
+#
+# Secrets: MT5_LOGIN, MT5_PASSWORD, MT5_SERVER
+
+on:
+  workflow_dispatch:
+    inputs:
+      simbolo:
+        description: "Simbolo (uno solo por pasada)"
+        default: "FX Vol 20"
+        required: true
+      periodo:
+        description: "Periodo del grafico (M3 basta: el EA escribe las 4 TF)"
+        default: "M3"
+        required: true
+      desde:
+        description: "Desde (YYYY.MM.DD)"
+        default: "2026.10.21"
+        required: true
+      hasta:
+        description: "Hasta (YYYY.MM.DD)"
+        default: "2026.11.20"
+        required: true
+      limite_min:
+        description: "Minutos maximos que se deja correr el tester"
+        default: "30"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mt5-backtest
+  cancel-in-progress: false
+
+env:
+  MT5_DIR: C:\Program Files\MetaTrader 5
+
+jobs:
+  bt:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Comprobar secrets
+        shell: pwsh
+        env:
+          S_LOGIN: ${{ secrets.MT5_LOGIN }}
+          S_PASS: ${{ secrets.MT5_PASSWORD }}
+          S_SERVER: ${{ secrets.MT5_SERVER }}
+        run: |
+          $falta = @()
+          if (-not $env:S_LOGIN)  { $falta += 'MT5_LOGIN' }
+          if (-not $env:S_PASS)   { $falta += 'MT5_PASSWORD' }
+          if (-not $env:S_SERVER) { $falta += 'MT5_SERVER' }
+          if ($falta.Count -gt 0) {
+            Write-Error ("Faltan secrets: " + ($falta -join ', '))
+            exit 1
+          }
+          Write-Host "Secrets presentes."
+
+      - name: Instalar MetaTrader 5
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $exe -UseBasicParsing
+          Start-Process -FilePath $exe -ArgumentList '/auto' -Wait
+          for ($i = 0; $i -lt 90; $i++) {
+            if (Test-Path "$env:MT5_DIR\terminal64.exe") { break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not (Test-Path "$env:MT5_DIR\terminal64.exe")) { throw 'MT5 no quedo instalado' }
+          (Get-Item "$env:MT5_DIR\terminal64.exe").VersionInfo.FileVersion
+
+      - name: Compilar el EA
+        shell: pwsh
+        run: |
+          $dst = "$env:MT5_DIR\MQL5\Experts"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -Path 'mt5-ea\EstrategiaAdversaria.mq5' -Destination $dst -Force
+          & "$env:MT5_DIR\metaeditor64.exe" "/compile:$dst\EstrategiaAdversaria.mq5" "/log:$env:RUNNER_TEMP\compile"
+          Start-Sleep -Seconds 2
+          if (Test-Path "$env:RUNNER_TEMP\compile.log") {
+            Get-Content "$env:RUNNER_TEMP\compile.log" -Encoding Unicode
+          }
+          if (-not (Test-Path "$dst\EstrategiaAdversaria.ex5")) { throw 'el EA no compilo (.ex5 ausente)' }
+          Write-Host "EA compilado."
+
+      - name: Una pasada del tester
+        shell: pwsh
+        env:
+          MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
+          MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
+          MT5_SERVER: ${{ secrets.MT5_SERVER }}
+          SIM: ${{ github.event.inputs.simbolo }}
+          PER: ${{ github.event.inputs.periodo }}
+          DES: ${{ github.event.inputs.desde }}
+          HAS: ${{ github.event.inputs.hasta }}
+          LIM: ${{ github.event.inputs.limite_min }}
+        run: |
+          .\mt5-adversario\mt5-ea\scripts\bt.ps1 `
+            -Simbolo $env:SIM -Periodo $env:PER `
+            -Desde $env:DES -Hasta $env:HAS `
+            -Salida 'bt_out' -LimiteMin ([int]$env:LIM)
+
+      - name: Resumen para leer sin bajar nada
+        if: always()
+        shell: pwsh
+        run: |
+          $s = @()
+          $s += "## Backtest ${{ github.event.inputs.simbolo }} ${{ github.event.inputs.periodo }}"
+          $s += ""
+          $s += "Rango pedido: ${{ github.event.inputs.desde }} -> ${{ github.event.inputs.hasta }}"
+          $s += ""
+          $sen = 'bt_out\senales.csv'
+          if (Test-Path $sen) {
+            $filas = @(Get-Content $sen | Select-Object -Skip 1)
+            $s += "Senales emitidas: **$($filas.Count)**"
+            $s += ""
+            $s += "| code | dir | n |"
+            $s += "|---|---|---|"
+            $filas | ForEach-Object { $c = $_ -split ';'; "$($c[4])|$($c[5])" } |
+              Group-Object | Sort-Object Count -Descending |
+              ForEach-Object { $s += "| $($_.Name -replace '\|',' | ') | $($_.Count) |" }
+            $s += ""
+          } else {
+            $s += "**No se genero senales.csv** (ver logs del tester en el artifact)"
+          }
+          foreach ($tf in @('M3','M5','M15','M30','H1')) {
+            $b = "bt_out\barras_$tf.csv"
+            if (-not (Test-Path $b)) { continue }
+            $L = @(Get-Content $b)
+            if ($L.Count -le 1) { continue }
+            $s += "- barras $tf : $($L.Count - 1) velas | $(($L[1] -split ';')[0]) -> $(($L[-1] -split ';')[0])"
+          }
+          $s | ForEach-Object { Write-Host $_ }
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($s -join "`n")
+
+      - name: Subir resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bt-${{ github.run_number }}
+          path: |
+            bt_out\*.csv
+            bt_out\*.md
+            C:\Program Files\MetaTrader 5\MQL5\Files\bt\*
+            C:\Program Files\MetaTrader 5\Common\Files\bt\*
+            C:\Program Files\MetaTrader 5\bt_report*
+            C:\Program Files\MetaTrader 5\config\Tester\logs\*.log
+            C:\Program Files\MetaTrader 5\Tester\Agent*\MQL5\Logs\*.log
+          retention-days: 14
+          if-no-files-found: warn
