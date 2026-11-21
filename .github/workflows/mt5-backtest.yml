@@ -133,8 +133,27 @@ jobs:
           ) -join "`r`n"
           Set-Content -Path "$env:MT5_DIR\warm.ini" -Value $ini -Encoding ASCII
           $p = Start-Process -FilePath "$env:MT5_DIR\terminal64.exe" -ArgumentList '/portable', "/config:`"$env:MT5_DIR\warm.ini`"" -PassThru
-          Start-Sleep -Seconds 90
+          # El tester no arranca si el terminal no esta sincronizado con el
+          # servidor de trading, asi que se espera a ver el login en el log
+          # (el primer arranque ademas recompila MQL5 y se actualiza).
+          $ok = $false
+          for ($i = 1; $i -le 60; $i++) {
+            Start-Sleep -Seconds 5
+            if ($p.HasExited) { Write-Warning "el terminal salio en el calentamiento"; break }
+            $l = Get-ChildItem "$env:MT5_DIR\logs" -Filter '*.log' -ErrorAction SilentlyContinue |
+                 Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($l -and (Select-String -Path $l.FullName -Pattern 'authorized on|connected to' -Quiet -Encoding Unicode)) {
+              $ok = $true
+              Write-Host "login confirmado a los $($i * 5) s"
+              break
+            }
+          }
+          if (-not $ok) { Write-Warning 'no se vio el login en el log; se sigue igual' }
+          Start-Sleep -Seconds 45   # margen para bajar simbolos
           if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          $l = Get-ChildItem "$env:MT5_DIR\logs" -Filter '*.log' -ErrorAction SilentlyContinue |
+               Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($l) { Write-Host "--- ultimas lineas de $($l.Name)"; Get-Content $l.FullName -Tail 12 -Encoding Unicode }
           Write-Host 'calentamiento terminado'
 
       - name: Una pasada del tester
@@ -149,10 +168,20 @@ jobs:
           HAS: ${{ github.event.inputs.hasta }}
           LIM: ${{ github.event.inputs.limite_min }}
         run: |
-          .\mt5-ea\scripts\bt.ps1 `
-            -Simbolo $env:SIM -Periodo $env:PER `
-            -Desde $env:DES -Hasta $env:HAS `
-            -Salida 'bt_out' -LimiteMin ([int]$env:LIM)
+          # Si el tester dice "not synchronized", se le da otra oportunidad.
+          for ($intento = 1; $intento -le 2; $intento++) {
+            try {
+              .\mt5-ea\scripts\bt.ps1 `
+                -Simbolo $env:SIM -Periodo $env:PER `
+                -Desde $env:DES -Hasta $env:HAS `
+                -Salida 'bt_out' -LimiteMin ([int]$env:LIM)
+              break
+            } catch {
+              Write-Warning "intento $intento fallo: $($_.Exception.Message)"
+              if ($intento -eq 2) { throw }
+              Start-Sleep -Seconds 60
+            }
+          }
 
       - name: Resumen para leer sin bajar nada
         if: always()
