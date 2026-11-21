@@ -114,6 +114,25 @@ jobs:
           }
           Write-Host "EA compilado: $ex5 ($((Get-Item $ex5).Length) bytes)"
 
+      - name: Diagnostico de red hacia el broker
+        shell: pwsh
+        env:
+          SRV: ${{ secrets.MT5_SERVER }}
+        run: |
+          $srv = $env:SRV
+          $vis = if ($srv.Length -gt 4) { $srv.Substring(0,4) + ('*' * ($srv.Length - 4)) } else { '****' }
+          Write-Host "MT5_SERVER = $vis (longitud $($srv.Length))"
+          try {
+            $dns = Resolve-DnsName -Name $srv -ErrorAction Stop
+            $dns | Select-Object -First 4 | ForEach-Object { Write-Host "DNS: $($_.Name) -> $($_.IPAddress)" }
+          } catch {
+            Write-Host "DNS FALLO para '$srv': $($_.Exception.Message)"
+          }
+          foreach ($puerto in @(443, 8443)) {
+            $t = Test-NetConnection -ComputerName $srv -Port $puerto -WarningAction SilentlyContinue
+            Write-Host "TCP $puerto -> $($t.TcpTestSucceeded)"
+          }
+
       - name: Calentar el terminal (descarga de simbolos)
         shell: pwsh
         env:
@@ -149,7 +168,7 @@ jobs:
             }
           }
           if (-not $ok) { Write-Warning 'no se vio el login en el log; se sigue igual' }
-          Start-Sleep -Seconds 45   # margen para bajar simbolos
+          Start-Sleep -Seconds 30   # margen para bajar simbolos
           if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
           $l = Get-ChildItem "$env:MT5_DIR\logs" -Filter '*.log' -ErrorAction SilentlyContinue |
                Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -229,6 +248,9 @@ jobs:
             "$env:MT5_DIR\Tester\Agent*\MQL5\Logs\*.log",
             "$env:MT5_DIR\Common\Files\bt\*.csv"
           )
+          foreach ($ini in @("$env:MT5_DIR\bt.ini", "$env:MT5_DIR\warm.ini")) {
+            if (Test-Path $ini) { Copy-Item $ini -Destination 'bt_out\logs' -Force }
+          }
           $n = 0
           foreach ($pat in $patrones) {
             foreach ($f in @(Get-ChildItem -Path $pat -ErrorAction SilentlyContinue)) {
@@ -236,7 +258,10 @@ jobs:
               $n++
               Write-Host "--- $($f.FullName) ($($f.Length) bytes)"
               if ($f.Extension -eq '.log') {
-                Get-Content $f.FullName -Tail 40 -Encoding Unicode | ForEach-Object { Write-Host "    $_" }
+                Write-Host '    ... primeras lineas ...'
+                Get-Content $f.FullName -TotalCount 25 -Encoding Unicode | ForEach-Object { Write-Host "    $_" }
+                Write-Host '    ... ultimas lineas ...'
+                Get-Content $f.FullName -Tail 25 -Encoding Unicode | ForEach-Object { Write-Host "    $_" }
               }
             }
           }
@@ -256,7 +281,6 @@ jobs:
             bt_out\**\*
             bt_out\*.csv
             bt_out\*.md
-            C:\Program Files\MetaTrader 5\bt.ini
             C:\Program Files\MetaTrader 5\MQL5\Files\bt\*
             C:\Program Files\MetaTrader 5\Common\Files\bt\*
             C:\Program Files\MetaTrader 5\bt_report*
