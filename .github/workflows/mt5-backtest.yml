@@ -41,6 +41,7 @@ env:
   BT_DESDE: ${{ github.event.inputs.desde }}
   BT_HASTA: ${{ github.event.inputs.hasta }}
   BT_LIMITE_MIN: ${{ github.event.inputs.limite_min }}
+  BT_LOGIN_MIN: "2"
 
 jobs:
   # MetaEditor no termina nunca bajo Wine, pero en Windows compila en segundos.
@@ -154,6 +155,20 @@ jobs:
           MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
           MT5_SERVER: ${{ secrets.MT5_SERVER }}
         run: python3 scripts_re/lab/mt5_backtest_linux.py
+
+      - name: Copiar logs del terminal (aunque se corte)
+        if: always()
+        run: |
+          mkdir -p bt_out/logs
+          for d in "$HOME/.wine/drive_c/Program Files/MetaTrader 5"; do
+            find "$d" -type f \( -name "*.log" -o -name "*.htm*" \) 2>/dev/null | head -20 | while read -r f; do
+              cp "$f" "bt_out/logs/" 2>/dev/null || true
+            done
+          done
+          find "$HOME/.wine/drive_c/users" -type f -name "*.log" -path "*MetaQuotes*" 2>/dev/null | head -20 | while read -r f; do
+            cp "$f" "bt_out/logs/" 2>/dev/null || true
+          done
+          ls -la bt_out/logs 2>/dev/null || true
 
       - name: Resumen en la pagina del run
         if: always()

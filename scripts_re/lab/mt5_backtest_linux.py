@@ -34,6 +34,7 @@ PERIODO = os.environ.get("BT_PERIODO", "M3")
 DESDE = os.environ.get("BT_DESDE", "")
 HASTA = os.environ.get("BT_HASTA", "")
 LIMITE_MIN = int(os.environ.get("BT_LIMITE_MIN", "30") or 30)
+LOGIN_MIN = float(os.environ.get("BT_LOGIN_MIN", "2") or 2)
 
 WORK = "/tmp/mt5_bt"
 WINE = os.path.expanduser("~/.wine")
@@ -170,6 +171,21 @@ def log_terminal_texto():
     except Exception:
         return ""
 
+def lineas_utiles(n=4):
+    """Ultimas lineas con chicha del log del terminal, para saber POR QUE falla."""
+    logs = terminal_logs()
+    if not logs:
+        return ["(sin log del terminal)"]
+    try:
+        txt = open(logs[-1], errors="replace").read().splitlines()
+    except Exception:
+        return ["(no se pudo leer el log del terminal)"]
+    claves = ("login", "authoriz", "password", "account", "connect", "server", "network",
+              "denied", "disabled", "invalid", "expired", "symbol", "history", "demo")
+    hit = [l.strip() for l in txt if any(k in l.lower() for k in claves)]
+    out = hit[-n:] if hit else [l.strip() for l in txt if l.strip()][-n:]
+    return out or ["(log vacio)"]
+
 def matar_terminal():
     sh("wineserver -k || true", show=False)
     time.sleep(5)
@@ -184,9 +200,10 @@ for cand in SERVIDORES:
     subprocess.Popen(["wine", term, "/portable", "/config:" + winpath(ini_login)],
                      cwd=MT5DIR, env=dict(os.environ),
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    motivo = "sin respuesta en 4 min"
-    for _ in range(4):
-        time.sleep(60)
+    motivo = "sin respuesta en %.0f min" % LOGIN_MIN
+    t_fin = time.time() + LOGIN_MIN * 60
+    while time.time() < t_fin:
+        time.sleep(10)
         t = log_terminal_texto()
         if any(m in t for m in EXITO):
             conectado = cand
@@ -199,13 +216,26 @@ for cand in SERVIDORES:
     if conectado:
         break
     log("   -> " + motivo)
+    for l in lineas_utiles(3):
+        log("      | " + l)
     matar_terminal()
-if not conectado:
-    log("   AVISO: ningun servidor confirmo el login; se sigue con el primero "
-        "(los logs del runner diran por que)")
 
-SERVER_OK = conectado or (SERVIDORES[0] if SERVIDORES else SERVER)
 matar_terminal()
+if not conectado:
+    log("   ERROR: el terminal no autorizo en ningun servidor (%s)." % ", ".join(SERVIDORES))
+    log("   Sin sesion el terminal no descarga la base de simbolos, y el tester no")
+    log("   puede resolver '%s': se quedaria colgado sin producir nada." % SIMBOLO)
+    log("   Revisa cuenta demo caducada, password y el NOMBRE EXACTO del servidor en MT5.")
+    for f in terminal_logs()[-3:]:
+        try:
+            shutil.copy2(f, os.path.join(OUT, "log_" + os.path.basename(f)))
+        except Exception:
+            pass
+    open(os.path.join(OUT, "resumen.md"), "w").write("# Backtest\n\n" + "\n".join(RESUMEN) + "\n")
+    open(os.path.join(REPO, "resumen.md"), "w").write("```\n" + "\n".join(RESUMEN) + "\n```\n")
+    sys.exit(1)
+
+SERVER_OK = conectado
 
 # ------------------------------------------- 4b. simbolos que existen de verdad
 log("[4/7 b] Simbolos del servidor")
@@ -213,16 +243,25 @@ bases_dir = os.path.join(MT5DIR, "bases")
 GRUPOS = {"currencies", "forex", "metals", "indices", "index", "crypto", "stocks",
           "futures", "bonds", "etf", "options", "other", "synthetic", "synthetics",
           "commodities", "shares", "charts"}
-simbolos = set()
-if os.path.isdir(bases_dir):
-    for root, dirs, files in os.walk(bases_dir):
-        padre = os.path.basename(os.path.dirname(root))
-        nombre = os.path.basename(root)
-        if any(f.lower().endswith(".hcc") for f in files):
-            simbolos.add(nombre)
-        if nombre.lower() not in GRUPOS and padre.lower() in GRUPOS:
-            simbolos.add(nombre)
-simbolos = sorted(s for s in simbolos if s)
+def escanear_simbolos():
+    vistos = set()
+    if os.path.isdir(bases_dir):
+        for root, dirs, files in os.walk(bases_dir):
+            padre = os.path.basename(os.path.dirname(root))
+            nombre = os.path.basename(root)
+            if any(f.lower().endswith(".hcc") for f in files):
+                vistos.add(nombre)
+            if nombre.lower() not in GRUPOS and padre.lower() in GRUPOS:
+                vistos.add(nombre)
+    return sorted(s for s in vistos if s)
+
+# la base se descarga DESPUES de autorizar: esperar a que aparezca
+simbolos = escanear_simbolos()
+for _ in range(18):
+    if simbolos:
+        break
+    time.sleep(10)
+    simbolos = escanear_simbolos()
 open(os.path.join(OUT, "simbolos_disponibles.txt"), "w").write(
     "\n".join(simbolos) if simbolos else "(bases vacio: sin cache de historial)")
 log("   detectados: %d" % len(simbolos))
