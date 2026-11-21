@@ -1,39 +1,30 @@
 name: MT5 backtest (una pasada -> CSV)
-
-# Una pasada del Strategy Tester = un CSV de senales + las barras de cada TF.
-# Todo el calculo ocurre en el runner; local solo se baja el artifact.
+# Prueba de 30 min del EA adversario: instala MT5 sobre Wine en un runner Ubuntu
+# (la receta que ya funciono en MT5 Lab), entra en la demo, compila el EA y corre
+# UNA pasada del Strategy Tester. Solo se baja el artifact con los CSV.
 #
-# Lo que hace:
-#   1. instala MetaTrader 5 en el runner Windows
-#   2. compila el EA (EstrategiaAdversaria.mq5)
-#   3. lanza UNA pasada del tester con bt.ps1 (Model=1, OHLC de M1)
-#   4. imprime la cobertura REAL de barras (el tester no avisa si pides mas
-#      historia de la que el broker tiene) y el conteo de senales
-#   5. sube bt_out/*.csv + los logs como artifact
-#
-# Secrets: MT5_LOGIN, MT5_PASSWORD, MT5_SERVER
-
+# Secrets: MT5_LOGIN, MT5_PASSWORD, MT5_SERVER (admite "a;b;c" para probar varios).
 on:
   workflow_dispatch:
     inputs:
       simbolo:
-        description: "Simbolo (uno solo por pasada)"
+        description: "Simbolo (admite varios separados por ;)"
         default: "FX Vol 20"
         required: true
       periodo:
-        description: "Periodo del grafico (M3 basta: el EA escribe las 4 TF)"
+        description: "Periodo del tester (M1/M3/M5/M15)"
         default: "M3"
         required: true
       desde:
-        description: "Desde (YYYY.MM.DD)"
+        description: "Desde (2026.10.21)"
         default: "2026.10.21"
         required: true
       hasta:
-        description: "Hasta (YYYY.MM.DD)"
+        description: "Hasta (2026.11.20)"
         default: "2026.11.20"
         required: true
       limite_min:
-        description: "Minutos maximos que se deja correr el tester"
+        description: "Minutos maximos del tester"
         default: "30"
         required: true
 
@@ -45,246 +36,77 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  MT5_DIR: C:\Program Files\MetaTrader 5
+  BT_SIMBOLO: ${{ github.event.inputs.simbolo }}
+  BT_PERIODO: ${{ github.event.inputs.periodo }}
+  BT_DESDE: ${{ github.event.inputs.desde }}
+  BT_HASTA: ${{ github.event.inputs.hasta }}
+  BT_LIMITE_MIN: ${{ github.event.inputs.limite_min }}
 
 jobs:
   bt:
-    runs-on: windows-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    timeout-minutes: 130
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Comprobar secrets
-        shell: pwsh
         env:
           S_LOGIN: ${{ secrets.MT5_LOGIN }}
           S_PASS: ${{ secrets.MT5_PASSWORD }}
           S_SERVER: ${{ secrets.MT5_SERVER }}
         run: |
-          $falta = @()
-          if (-not $env:S_LOGIN)  { $falta += 'MT5_LOGIN' }
-          if (-not $env:S_PASS)   { $falta += 'MT5_PASSWORD' }
-          if (-not $env:S_SERVER) { $falta += 'MT5_SERVER' }
-          if ($falta.Count -gt 0) {
-            Write-Error ("Faltan secrets: " + ($falta -join ', '))
-            exit 1
-          }
-          Write-Host "Secrets presentes."
+          falta=""
+          [ -z "$S_LOGIN" ] && falta="$falta MT5_LOGIN"
+          [ -z "$S_PASS" ] && falta="$falta MT5_PASSWORD"
+          [ -z "$S_SERVER" ] && falta="$falta MT5_SERVER"
+          if [ -n "$falta" ]; then echo "Faltan secrets:$falta"; exit 1; fi
+          echo "Secrets presentes. Servidor(es) declarados: $(echo "$S_SERVER" | tr ';' ' ')"
 
-      - name: Instalar MetaTrader 5
-        shell: pwsh
+      - name: Sistema (Wine + Xvfb)
         run: |
-          $exe = Join-Path $env:RUNNER_TEMP 'mt5setup.exe'
-          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile $exe -UseBasicParsing
-          Start-Process -FilePath $exe -ArgumentList '/auto' -Wait
-          for ($i = 0; $i -lt 90; $i++) {
-            if (Test-Path "$env:MT5_DIR\terminal64.exe") { break }
-            Start-Sleep -Seconds 5
-          }
-          if (-not (Test-Path "$env:MT5_DIR\terminal64.exe")) { throw 'MT5 no quedo instalado' }
-          (Get-Item "$env:MT5_DIR\terminal64.exe").VersionInfo.FileVersion
+          set -e
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb winbind unzip xdotool > /dev/null
+          sudo mkdir -pm755 /usr/share/keyrings
+          sudo wget -qO /usr/share/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+          CODENAME="$(. /etc/os-release && echo $VERSION_CODENAME)"
+          sudo wget -qO "/etc/apt/sources.list.d/winehq-${CODENAME}.sources" \
+            "https://dl.winehq.org/wine-builds/ubuntu/dists/${CODENAME}/winehq-${CODENAME}.sources" \
+            || sudo rm -f "/etc/apt/sources.list.d/winehq-${CODENAME}.sources"
+          (sudo apt-get update -qq && sudo apt-get install -y -qq --install-recommends winehq-stable > /dev/null) \
+            || (sudo rm -f /etc/apt/sources.list.d/winehq-*.sources && sudo apt-get update -qq \
+                && sudo apt-get install -y -qq wine wine64 wine32 > /dev/null)
+          wine --version
 
-      - name: Compilar el EA
-        shell: pwsh
-        run: |
-          $dst = "$env:MT5_DIR\MQL5\Experts"
-          New-Item -ItemType Directory -Force -Path $dst | Out-Null
-          Copy-Item -Path 'mt5-ea\EstrategiaAdversaria.mq5' -Destination $dst -Force
-          $src = Join-Path $dst 'EstrategiaAdversaria.mq5'
-          $me  = Join-Path $env:MT5_DIR 'metaeditor64.exe'
-          if (-not (Test-Path $me)) { throw "no existe $me" }
-          # Start-Process -Wait es obligatorio: metaeditor es GUI y con '&' el
-          # script sigue antes de que termine de compilar.
-          # Las rutas llevan espacios ("Program Files"): sin comillas el
-          # compilador recibe /compile:C:\Program y sale con exit 0 sin hacer nada.
-          $p = Start-Process -FilePath $me -ArgumentList @("/compile:`"$src`"", '/log') -Wait -PassThru
-          Write-Host "metaeditor exit=$($p.ExitCode)"
-          $log = [IO.Path]::ChangeExtension($src, '.log')
-          if (Test-Path $log) { Get-Content $log -Encoding Unicode }
-          $ex5 = [IO.Path]::ChangeExtension($src, '.ex5')
-          for ($i = 0; $i -lt 12; $i++) {
-            if (Test-Path $ex5) { break }
-            Start-Sleep -Seconds 5
-          }
-          if (-not (Test-Path $ex5)) {
-            Write-Host "contenido de $dst :"
-            Get-ChildItem -Path $dst -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name) $($_.Length)" }
-            throw 'el EA no compilo (.ex5 ausente)'
-          }
-          Write-Host "EA compilado: $ex5 ($((Get-Item $ex5).Length) bytes)"
-
-      - name: Diagnostico de red hacia el broker
-        shell: pwsh
+      - name: Cache del instalador (release bot-assets)
+        continue-on-error: true
         env:
-          SRV: ${{ secrets.MT5_SERVER }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $srv = $env:SRV
-          $vis = if ($srv.Length -gt 4) { $srv.Substring(0,4) + ('*' * ($srv.Length - 4)) } else { '****' }
-          Write-Host "MT5_SERVER = $vis (longitud $($srv.Length))"
-          try {
-            $dns = Resolve-DnsName -Name $srv -ErrorAction Stop
-            $dns | Select-Object -First 4 | ForEach-Object { Write-Host "DNS: $($_.Name) -> $($_.IPAddress)" }
-          } catch {
-            Write-Host "DNS FALLO para '$srv': $($_.Exception.Message)"
-          }
-          foreach ($puerto in @(443, 8443)) {
-            $t = Test-NetConnection -ComputerName $srv -Port $puerto -WarningAction SilentlyContinue
-            Write-Host "TCP $puerto -> $($t.TcpTestSucceeded)"
-          }
+          mkdir -p bot_dir
+          gh release download bot-assets --pattern "mt5setup.exe" --dir bot_dir \
+            --repo "$GITHUB_REPOSITORY" || true
+          ls -la bot_dir
 
-      - name: Calentar el terminal (descarga de simbolos)
-        shell: pwsh
+      - name: Backtest en MT5 (Wine)
         env:
           MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
           MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
           MT5_SERVER: ${{ secrets.MT5_SERVER }}
-          SIM: ${{ github.event.inputs.simbolo }}
-        run: |
-          $ini = @(
-            '[Common]',
-            "Login=$env:MT5_LOGIN",
-            "Password=$env:MT5_PASSWORD",
-            "Server=$env:MT5_SERVER",
-            '',
-            '[StartUp]',
-            "Symbol=$env:SIM"
-          ) -join "`r`n"
-          Set-Content -Path "$env:MT5_DIR\warm.ini" -Value $ini -Encoding ASCII
-          $p = Start-Process -FilePath "$env:MT5_DIR\terminal64.exe" -ArgumentList '/portable', "/config:`"$env:MT5_DIR\warm.ini`"" -PassThru
-          # El tester no arranca si el terminal no esta sincronizado con el
-          # servidor de trading, asi que se espera a ver el login en el log
-          # (el primer arranque ademas recompila MQL5 y se actualiza).
-          $ok = $false
-          for ($i = 1; $i -le 60; $i++) {
-            Start-Sleep -Seconds 5
-            if ($p.HasExited) { Write-Warning "el terminal salio en el calentamiento"; break }
-            $l = Get-ChildItem "$env:MT5_DIR\logs" -Filter '*.log' -ErrorAction SilentlyContinue |
-                 Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($l -and (Select-String -Path $l.FullName -Pattern 'authorized on|connected to' -Quiet -Encoding Unicode)) {
-              $ok = $true
-              Write-Host "login confirmado a los $($i * 5) s"
-              break
-            }
-          }
-          if (-not $ok) { Write-Warning 'no se vio el login en el log; se sigue igual' }
-          Start-Sleep -Seconds 30   # margen para bajar simbolos
-          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
-          $l = Get-ChildItem "$env:MT5_DIR\logs" -Filter '*.log' -ErrorAction SilentlyContinue |
-               Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($l) { Write-Host "--- ultimas lineas de $($l.Name)"; Get-Content $l.FullName -Tail 12 -Encoding Unicode }
-          Write-Host 'calentamiento terminado'
+        run: python3 scripts_re/lab/mt5_backtest_linux.py
 
-      - name: Una pasada del tester
-        shell: pwsh
-        env:
-          MT5_LOGIN: ${{ secrets.MT5_LOGIN }}
-          MT5_PASSWORD: ${{ secrets.MT5_PASSWORD }}
-          MT5_SERVER: ${{ secrets.MT5_SERVER }}
-          SIM: ${{ github.event.inputs.simbolo }}
-          PER: ${{ github.event.inputs.periodo }}
-          DES: ${{ github.event.inputs.desde }}
-          HAS: ${{ github.event.inputs.hasta }}
-          LIM: ${{ github.event.inputs.limite_min }}
-        run: |
-          # Si el tester dice "not synchronized", se le da otra oportunidad.
-          for ($intento = 1; $intento -le 2; $intento++) {
-            try {
-              .\mt5-ea\scripts\bt.ps1 `
-                -Simbolo $env:SIM -Periodo $env:PER `
-                -Desde $env:DES -Hasta $env:HAS `
-                -Salida 'bt_out' -LimiteMin ([int]$env:LIM)
-              break
-            } catch {
-              Write-Warning "intento $intento fallo: $($_.Exception.Message)"
-              if ($intento -eq 2) { throw }
-              Start-Sleep -Seconds 60
-            }
-          }
-
-      - name: Resumen para leer sin bajar nada
+      - name: Resumen en la pagina del run
         if: always()
-        shell: pwsh
         run: |
-          $s = @()
-          $s += "## Backtest ${{ github.event.inputs.simbolo }} ${{ github.event.inputs.periodo }}"
-          $s += ""
-          $s += "Rango pedido: ${{ github.event.inputs.desde }} -> ${{ github.event.inputs.hasta }}"
-          $s += ""
-          $sen = 'bt_out\senales.csv'
-          if (Test-Path $sen) {
-            $filas = @(Get-Content $sen | Select-Object -Skip 1)
-            $s += "Senales emitidas: **$($filas.Count)**"
-            $s += ""
-            $s += "| code | dir | n |"
-            $s += "|---|---|---|"
-            $filas | ForEach-Object { $c = $_ -split ';'; "$($c[4])|$($c[5])" } |
-              Group-Object | Sort-Object Count -Descending |
-              ForEach-Object { $s += "| $($_.Name -replace '\|',' | ') | $($_.Count) |" }
-            $s += ""
-          } else {
-            $s += "**No se genero senales.csv** (ver logs del tester en el artifact)"
-          }
-          foreach ($tf in @('M3','M5','M15','M30','H1')) {
-            $b = "bt_out\barras_$tf.csv"
-            if (-not (Test-Path $b)) { continue }
-            $L = @(Get-Content $b)
-            if ($L.Count -le 1) { continue }
-            $s += "- barras $tf : $($L.Count - 1) velas | $(($L[1] -split ';')[0]) -> $(($L[-1] -split ';')[0])"
-          }
-          $s | ForEach-Object { Write-Host $_ }
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($s -join "`n")
-
-      - name: Volcar logs del terminal
-        if: always()
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path 'bt_out\logs' | Out-Null
-          $patrones = @(
-            "$env:MT5_DIR\logs\*.log",
-            "$env:MT5_DIR\MQL5\Logs\*.log",
-            "$env:MT5_DIR\config\Tester\logs\*.log",
-            "$env:MT5_DIR\Tester\logs\*.log",
-            "$env:MT5_DIR\Tester\Agent*\MQL5\Logs\*.log",
-            "$env:MT5_DIR\Common\Files\bt\*.csv"
-          )
-          foreach ($ini in @("$env:MT5_DIR\bt.ini", "$env:MT5_DIR\warm.ini")) {
-            if (Test-Path $ini) { Copy-Item $ini -Destination 'bt_out\logs' -Force }
-          }
-          $n = 0
-          foreach ($pat in $patrones) {
-            foreach ($f in @(Get-ChildItem -Path $pat -ErrorAction SilentlyContinue)) {
-              Copy-Item $f.FullName -Destination 'bt_out\logs' -Force
-              $n++
-              Write-Host "--- $($f.FullName) ($($f.Length) bytes)"
-              if ($f.Extension -eq '.log') {
-                Write-Host '    ... primeras lineas ...'
-                Get-Content $f.FullName -TotalCount 25 -Encoding Unicode | ForEach-Object { Write-Host "    $_" }
-                Write-Host '    ... ultimas lineas ...'
-                Get-Content $f.FullName -Tail 25 -Encoding Unicode | ForEach-Object { Write-Host "    $_" }
-              }
-            }
-          }
-          Write-Host "archivos de log copiados: $n"
-          Write-Host '--- arbol de Tester ---'
-          Get-ChildItem -Path "$env:MT5_DIR\Tester" -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 40 | ForEach-Object { Write-Host "  $($_.FullName)" }
-          Write-Host '--- bt.ini ---'
-          if (Test-Path "$env:MT5_DIR\bt.ini") { Get-Content "$env:MT5_DIR\bt.ini" | Where-Object { $_ -notmatch 'Password' } }
+          if [ -f resumen.md ]; then cat resumen.md >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Subir resultados
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bt-${{ github.run_number }}
-          path: |
-            bt_out\**\*
-            bt_out\*.csv
-            bt_out\*.md
-            C:\Program Files\MetaTrader 5\MQL5\Files\bt\*
-            C:\Program Files\MetaTrader 5\Common\Files\bt\*
-            C:\Program Files\MetaTrader 5\bt_report*
-            C:\Program Files\MetaTrader 5\config\Tester\logs\*.log
-            C:\Program Files\MetaTrader 5\Tester\Agent*\MQL5\Logs\*.log
+          path: bt_out
           retention-days: 14
           if-no-files-found: warn
