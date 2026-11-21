@@ -121,32 +121,38 @@ if not os.path.exists(term):
 MT5DIR = os.path.dirname(term)
 log("   terminal: %s" % term)
 
-# --------------------------------------------------------------- 3. compilar
-log("[3/7] Compilacion del EA")
-src = os.path.join(REPO, "mt5-ea", "EstrategiaAdversaria.mq5")
-if not os.path.exists(src):
-    raise SystemExit("no existe %s" % src)
+# --------------------------------------------------------------- 3. EA
+log("[3/7] EA en MQL5\\Experts")
 expertos = os.path.join(MT5DIR, "MQL5", "Experts")
 os.makedirs(expertos, exist_ok=True)
-dst = os.path.join(expertos, "EstrategiaAdversaria.mq5")
-shutil.copy2(src, dst)
-ex5 = dst[:-4] + ".ex5"
-if os.path.exists(ex5):
-    os.remove(ex5)
-clog = os.path.join(WORK, "compile.log")
-rc = subprocess.run(["wine", os.path.join(MT5DIR, "metaeditor64.exe"),
-                     "/compile:" + winpath(dst), "/log:" + winpath(clog)],
-                    env=dict(os.environ), capture_output=True, text=True, timeout=420)
-for _ in range(30):
-    if os.path.exists(ex5) and os.path.getsize(ex5) > 0:
-        break
-    time.sleep(2)
-if os.path.exists(clog):
-    for ln in open(clog, errors="replace").read().splitlines()[-15:]:
-        log("   " + ln.strip())
-if not (os.path.exists(ex5) and os.path.getsize(ex5) > 0):
-    raise SystemExit("el EA no compilo (.ex5 ausente). rc=%s" % rc.returncode)
-log("   .ex5: %d bytes" % os.path.getsize(ex5))
+ex5 = os.path.join(expertos, "EstrategiaAdversaria.ex5")
+pre = sorted(glob.glob(os.path.join(REPO, "bot_dir", "*.ex5")))
+if pre:
+    # MetaEditor cuelga bajo Wine: el .ex5 llega ya compilado del job de Windows.
+    shutil.copy2(pre[0], ex5)
+    log("   .ex5 precompilado: %s (%d bytes)" % (os.path.basename(pre[0]),
+                                                 os.path.getsize(ex5)))
+else:
+    log("   sin .ex5 precompilado; intentando compilar aqui (puede colgar)")
+    src = os.path.join(REPO, "mt5-ea", "EstrategiaAdversaria.mq5")
+    if not os.path.exists(src):
+        raise SystemExit("no existe %s" % src)
+    dst = os.path.join(expertos, "EstrategiaAdversaria.mq5")
+    shutil.copy2(src, dst)
+    proceso = subprocess.Popen(["wine", os.path.join(MT5DIR, "metaeditor64.exe"),
+                                "/compile:" + winpath(dst)],
+                               env=dict(os.environ),
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(90):
+        if os.path.exists(ex5) and os.path.getsize(ex5) > 0:
+            break
+        time.sleep(2)
+    if proceso.poll() is None:
+        proceso.kill()
+        sh("wineserver -k || true", show=False)
+    if not (os.path.exists(ex5) and os.path.getsize(ex5) > 0):
+        raise SystemExit("el EA no compilo (.ex5 ausente)")
+    log("   .ex5 compilado: %d bytes" % os.path.getsize(ex5))
 
 # --------------------------------------------------------------- 4. login
 log("[4/7] Login DEMO (auto-descubrimiento de servidor)")
