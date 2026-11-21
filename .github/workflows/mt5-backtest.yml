@@ -126,7 +126,7 @@ jobs:
           HAS: ${{ github.event.inputs.hasta }}
           LIM: ${{ github.event.inputs.limite_min }}
         run: |
-          .\mt5-adversario\mt5-ea\scripts\bt.ps1 `
+          .\mt5-ea\scripts\bt.ps1 `
             -Simbolo $env:SIM -Periodo $env:PER `
             -Desde $env:DES -Hasta $env:HAS `
             -Salida 'bt_out' -LimiteMin ([int]$env:LIM)
