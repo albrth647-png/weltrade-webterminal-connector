@@ -1,0 +1,55 @@
+name: APK Android
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'fx-replay/**'
+      - '.github/workflows/apk.yml'
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fx-replay
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: fx-replay/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar web
+        run: npm run build
+
+      - name: Generar proyecto Android
+        run: npx cap add android
+
+      - name: Sincronizar
+        run: npx cap sync android
+
+      - name: Compilar APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fx-replay-apk
+          path: fx-replay/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

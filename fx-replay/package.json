@@ -1,0 +1,22 @@
+{
+  "name": "fx-replay",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Replay manual de FX Vol 20, 100% local",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.6.10",
+    "@tradecanvas/chart": "2.17.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.6.10",
+    "@capacitor/cli": "^7.6.10",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.3"
+  }
+}

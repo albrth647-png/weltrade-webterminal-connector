@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0e13" />
+    <meta name="description" content="Replay manual y 100% local de FX Vol 20" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <title>FX Replay</title>
+  </head>
+  <body>
+    <header id="top">
+      <div class="brand">
+        <span class="dot"></span>
+        <div class="who">
+          <strong id="sym">FX REPLAY</strong>
+          <span id="sub">todo local · sin conexión</span>
+        </div>
+      </div>
+      <nav>
+        <button id="btnReplay" class="icon" title="Replay manual" aria-label="Replay">
+          <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+        </button>
+        <button id="btnOps" class="icon" title="Diario de operaciones" aria-label="Diario">
+          <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z" fill="none" stroke="currentColor" stroke-width="2" /><path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="2" /></svg>
+          <b id="opsBadge" hidden>0</b>
+        </button>
+        <button id="btnImport" class="icon" title="Importar CSV" aria-label="Importar CSV">
+          <svg viewBox="0 0 24 24"><path d="M12 3v11m0 0l4-4m-4 4l-4-4M4 17v3h16v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+        </button>
+      </nav>
+    </header>
+
+    <main id="chart"></main>
+
+    <section id="empty" hidden>
+      <div class="card">
+        <h1>Tu gráfico, sin internet</h1>
+        <p>Carga el CSV de <b>FX Vol 20</b> (M1 hasta 2 años). Todo se queda en este dispositivo: nada se sube a ningún servidor.</p>
+        <button id="btnPick" class="primary">Elegir archivo CSV</button>
+        <ul>
+          <li>Importación una sola vez: queda guardada en el móvil.</li>
+          <li>M1 alimenta M3, M5, M15, M30, H1 y H4.</li>
+          <li>SL, TP y entradas siempre a mano.</li>
+        </ul>
+      </div>
+    </section>
+
+    <div id="progress" hidden><span id="progressText">Leyendo…</span><div class="bar"><i></i></div></div>
+
+    <dialog id="ops">
+      <div class="sheet">
+        <header>
+          <h2>Diario</h2>
+          <button id="opsClose" class="icon" aria-label="Cerrar">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" /></svg>
+          </button>
+        </header>
+        <div id="stats" class="stats"></div>
+        <div id="tradeList" class="trades"></div>
+        <footer>
+          <button id="btnExport" class="ghost">Exportar JSON</button>
+          <button id="btnWipe" class="ghost danger">Borrar diario</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <input id="file" type="file" accept=".csv,text/csv,text/plain" multiple hidden />
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
