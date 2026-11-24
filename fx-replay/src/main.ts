@@ -288,7 +288,22 @@ async function renderJournal(): Promise<void> {
 
 /* --------------------------------- arranque ------------------------------- */
 
+async function setupNativeShell(): Promise<void> {
+  const capacitor = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+  if (!capacitor?.isNativePlatform?.()) return;
+  document.body.classList.add('native');
+  try {
+    const { StatusBar, Style } = await import('@capacitor/status-bar');
+    await StatusBar.setOverlaysWebView({ overlay: false });
+    await StatusBar.setBackgroundColor({ color: '#0b0e13' });
+    await StatusBar.setStyle({ style: Style.Dark });
+  } catch {
+    // Sin plugin: el CSS ya reserva el hueco de la barra de estado.
+  }
+}
+
 async function boot(): Promise<void> {
+  void setupNativeShell();
   el.pick.addEventListener('click', () => el.file.click());
   el.importBtn.addEventListener('click', () => el.file.click());
   el.file.addEventListener('change', () => {
