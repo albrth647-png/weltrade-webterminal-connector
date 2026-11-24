@@ -67,26 +67,9 @@ function tx<T>(store: 'datasets' | 'trades' | 'meta', mode: IDBTransactionMode, 
   );
 }
 
-export async function saveDataset(record: DatasetRecord, keepOnly = true): Promise<void> {
-  if (keepOnly) {
-    const existing = await listDatasets();
-    for (const other of existing) {
-      if (other.symbol !== record.symbol) await deleteDataset(other.symbol);
-    }
-  }
-  const c = record.columns;
-  const compact: DatasetRecord = {
-    ...record,
-    columns: {
-      time: c.time.slice(),
-      open: c.open.slice(),
-      high: c.high.slice(),
-      low: c.low.slice(),
-      close: c.close.slice(),
-      volume: c.volume.slice(),
-    },
-  };
-  await tx('datasets', 'readwrite', (s) => s.put(compact));
+export async function saveDataset(record: DatasetRecord): Promise<void> {
+  // IndexedDB clona las columnas al escribir, así que no hace falta copiarlas antes.
+  await tx('datasets', 'readwrite', (s) => s.put(record));
 }
 
 export async function listDatasets(): Promise<DatasetRecord[]> {

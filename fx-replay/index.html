@@ -12,13 +12,14 @@
   </head>
   <body>
     <header id="top">
-      <div class="brand">
+      <button id="btnLib" class="brand" aria-label="Cambiar de activo">
         <span class="dot"></span>
         <div class="who">
           <strong id="sym">FX REPLAY</strong>
           <span id="sub">todo local · sin conexión</span>
         </div>
-      </div>
+        <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+      </button>
       <nav>
         <button id="btnReplay" class="icon" title="Replay manual" aria-label="Replay">
           <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
@@ -38,11 +39,12 @@
     <section id="empty" hidden>
       <div class="card">
         <h1>Tu gráfico, sin internet</h1>
-        <p>Carga el CSV de <b>FX Vol 20</b> (M1 hasta 2 años). Todo se queda en este dispositivo: nada se sube a ningún servidor.</p>
-        <button id="btnPick" class="primary">Elegir archivo CSV</button>
+        <p>Carga los archivos de <b>syntx-historico</b> (<b>.csv.gz</b> o <b>.csv</b>), de uno en uno o los 41 activos a la vez. Todo se queda en este dispositivo: nada se sube a ningún servidor.</p>
+        <button id="btnPick" class="primary">Elegir archivos</button>
         <ul>
-          <li>Importación una sola vez: queda guardada en el móvil.</li>
-          <li>M1 alimenta M3, M5, M15, M30, H1 y H4.</li>
+          <li>Se importan una sola vez y quedan guardados en el móvil.</li>
+          <li>Puedes cargar varios activos y cambiar entre ellos desde el nombre.</li>
+          <li>La temporalidad base (M1, M5, H4…) se detecta del propio archivo.</li>
           <li>SL, TP y entradas siempre a mano.</li>
         </ul>
       </div>
@@ -67,7 +69,24 @@
       </div>
     </dialog>
 
-    <input id="file" type="file" accept=".csv,text/csv,text/plain" multiple hidden />
+    <dialog id="lib">
+      <div class="sheet">
+        <header>
+          <h2>Activos</h2>
+          <button id="libClose" class="icon" aria-label="Cerrar">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" /></svg>
+          </button>
+        </header>
+        <p id="libNote" class="empty-note"></p>
+        <div id="libList" class="lib"></div>
+        <footer>
+          <button id="libImport" class="ghost">Importar archivos</button>
+          <button id="libWipe" class="ghost danger">Vaciar todo</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <input id="file" type="file" accept=".csv,.gz,application/gzip,text/csv,text/plain" multiple hidden />
     <div id="toast" role="status" aria-live="polite"></div>
 
     <script type="module" src="./src/main.ts"></script>

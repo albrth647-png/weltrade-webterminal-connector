@@ -28,8 +28,18 @@ export type Parsed = {
 
 const TF_SUFFIX = /_(M1|M2|M3|M4|M5|M6|M10|M12|M15|M20|M30|H1|H2|H3|H4|H6|H8|H12|D1|W1)$/i;
 
+/** Quita extensiones: `.csv`, `.txt`, `.gz` (syntx-historico usa `FX-Vol-80.csv.gz`). */
+function stripExtension(name: string): string {
+  return name
+    .replace(/[\\/]+$/, '')
+    .split(/[\\/]/)
+    .pop()!
+    .replace(/\.gz$/i, '')
+    .replace(/\.(csv|txt|tsv)$/i, '');
+}
+
 export function symbolFromName(name: string): string {
-  const base = name.replace(/\.csv$/i, '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? name;
+  const base = stripExtension(name);
   return base
     .replace(TF_SUFFIX, '')
     .replace(/[_-]+/g, ' ')
@@ -39,8 +49,43 @@ export function symbolFromName(name: string): string {
 }
 
 export function timeframeFromName(name: string): string {
-  const m = name.match(TF_SUFFIX);
-  return m ? m[1].toLowerCase() : '1m';
+  const m = stripExtension(name).match(TF_SUFFIX);
+  return m ? m[1].toLowerCase() : '';
+}
+
+const TF_SECONDS: Array<[string, number]> = [
+  ['1m', 60],
+  ['5m', 300],
+  ['15m', 900],
+  ['30m', 1800],
+  ['1h', 3600],
+  ['4h', 14400],
+  ['1d', 86400],
+];
+
+/** Temporalidad deducida de la separación típica entre velas (mediana, robusta a huecos). */
+export function inferTimeframe(columns: Columns): string {
+  const n = columns.time.length;
+  if (n < 3) return '1m';
+  const step = Math.max(1, Math.floor((n - 1) / 4000));
+  const deltas: number[] = [];
+  for (let i = step; i < n; i += step) {
+    const d = (columns.time[i] - columns.time[i - step]) / 1000 / step;
+    if (d > 0) deltas.push(d);
+  }
+  if (deltas.length === 0) return '1m';
+  deltas.sort((a, b) => a - b);
+  const median = deltas[Math.floor(deltas.length / 2)];
+  let best = TF_SECONDS[0];
+  let bestGap = Infinity;
+  for (const entry of TF_SECONDS) {
+    const gap = Math.abs(Math.log(entry[1] / median));
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = entry;
+    }
+  }
+  return best[0];
 }
 
 export function detectSeparator(header: string): string {
@@ -118,8 +163,10 @@ function mapHeader(cells: string[]): Layout | null {
   const find = (...keys: string[]): number =>
     names.findIndex((name) => keys.some((key) => name === key || name.startsWith(key)));
 
-  const date = find('date', 'fecha', 'datetime', 'fechahora');
+  let date = find('date', 'fecha', 'datetime', 'fechahora', 'timestamp', 'epoch', 'ts');
   const clockColumn = find('time', 'hora');
+  // Formatos tipo `time,open,high,low,close` (epoch completo): `time` es la fecha, no la hora.
+  if (date < 0 && clockColumn >= 0) date = clockColumn;
   const open = find('open', 'apertura');
   const high = find('high', 'maximo', 'max');
   const low = find('low', 'minimo', 'min');
@@ -254,7 +301,7 @@ export function parseCsv(text: string, filename: string): Parsed {
 
   return {
     symbol: symbolFromName(filename),
-    timeframe: timeframeFromName(filename),
+    timeframe: timeframeFromName(filename) || inferTimeframe(trimmed),
     count: kept,
     from: trimmed.time[0],
     to: trimmed.time[kept - 1],

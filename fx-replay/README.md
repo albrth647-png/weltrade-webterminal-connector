@@ -19,8 +19,10 @@ take profit los pones tú.
 
 ## Temporalidades
 
-Se importa **solo M1** y el motor genera M3, M5, M15, M30, H1 y H4 por
-remuestreo (`resampleTimeframes`), conservando la cámara y el zoom al cambiar.
+La **temporalidad base** es la del archivo importado y se detecta midiendo la
+separación típica entre velas (no hace falta que el nombre lo diga). A partir de
+eella el motor genera las superiores por remuestreo (`resampleTimeframes`),
+conservando la cámara y el zoom al cambiar. Un M1 da M1 → H4; un H4 da solo H4.
 
 Medido con los datos reales de FX Vol 20 (1.049.532 velas M1, dos años):
 
@@ -30,13 +32,21 @@ Medido con los datos reales de FX Vol 20 (1.049.532 velas M1, dos años):
 
 ## Cargar datos
 
-1. Descarga el artifact `datos-mt5-csv` del workflow de exportación (o el
-   `FX_Vol_20_M1.csv` de `datos_out/`).
-2. Abre la app → **Elegir archivo CSV**.
-3. El archivo se guarda en el dispositivo; las siguientes veces abre directo.
+Sirven los archivos de `albrth647-png/syntx-historico` tal cual (`charts/1/FX-Vol-20.csv.gz`)
+y los CSV de MT5.
 
-Se aceptan cabeceras en español o inglés, separador `;`, `,` o tabulador,
-coma decimal y fechas `2024.11.24 10:00`, ISO o epoch.
+1. Descarga los `.csv.gz` que quieras (puedes elegir varios a la vez, incluso los 41).
+2. Abre la app → **Elegir archivos**.
+3. Cada activo queda guardado en el dispositivo; para cambiar de uno a otro toca
+   el **nombre del activo** en la cabecera.
+
+Formatos aceptados: `.csv.gz` (gzip) y `.csv`, cabeceras en español o inglés,
+separador `;`, `,` o tabulador, coma decimal y fechas `2024.11.24 10:00`, ISO o
+epoch en segundos/milisegundos. Las columnas `time,open,high,low,close` del repo
+SyntX entran directamente. El volumen es opcional.
+
+Ojo con el espacio: cada activo M1 ocupa unos 40 MB en el móvil. La hoja de
+activos muestra cuánto llevas usado y permite borrar los que no uses.
 
 ## Compilar
 

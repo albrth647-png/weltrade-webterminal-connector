@@ -1,10 +1,20 @@
 import { parseCsv } from './csv';
 
-type Request = { id: number; text: string; name: string };
+type Request = { id: number; buffer: ArrayBuffer; name: string };
 
-self.onmessage = (event: MessageEvent<Request>) => {
-  const { id, text, name } = event.data;
+/** Descomprime si el archivo trae la firma gzip (1F 8B), como los `*.csv.gz` de syntx-historico. */
+async function toText(buffer: ArrayBuffer): Promise<string> {
+  const head = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
+  const gzipped = head.length === 2 && head[0] === 0x1f && head[1] === 0x8b;
+  if (!gzipped) return new Response(buffer).text();
+  const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Response(stream).text();
+}
+
+self.onmessage = async (event: MessageEvent<Request>) => {
+  const { id, buffer, name } = event.data;
   try {
+    const text = await toText(buffer);
     const parsed = parseCsv(text, name);
     const c = parsed.columns;
     self.postMessage(
